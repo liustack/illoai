@@ -36,11 +36,11 @@ export const minimalWatercolor = {
         '商业插画感',
     ],
     paletteSlots: [
-        { name: 'paper', role: '纸底', defaultValue: '暖白' },
-        { name: 'primary', role: '主色', defaultValue: '低饱和雾蓝与灰青绿' },
-        { name: 'secondary', role: '辅色', defaultValue: '沙色、米白' },
-        { name: 'accent', role: '强调色', defaultValue: '低饱和暖黄' },
-        { name: 'dark', role: '深色', defaultValue: '淡墨' },
+        { name: 'paper', role: '纸底', prompt: '暖白', css: '#f4efe6' },
+        { name: 'primary', role: '主色', prompt: '低饱和雾蓝与灰青绿', css: '#7a93a0' },
+        { name: 'secondary', role: '辅色', prompt: '沙色、米白', css: '#d8cbb8' },
+        { name: 'accent', role: '强调色', prompt: '低饱和暖黄', css: '#d4b56a' },
+        { name: 'dark', role: '深色', prompt: '淡墨', css: '#5c5a54' },
     ],
     canvas: {
         strategy: 'paper-border',

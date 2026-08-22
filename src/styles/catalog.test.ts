@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { BUILT_IN_STYLES } from './catalog.ts';
 import { listStyles, loadStyle } from './loader.ts';
+import { parseCssColorValue } from './schema.ts';
 
 const STYLE_ORDER = [
     'minimal_watercolor',
@@ -48,12 +49,18 @@ describe('built-in style catalog', () => {
         }
     });
 
-    it('keeps palette default values inside the unchanged prompt', () => {
+    it('keeps palette prompt values inside the unchanged prompt', () => {
         for (const style of listStyles()) {
             for (const slot of style.paletteSlots) {
-                expect(style.prompt.includes(slot.defaultValue), `${style.name}.${slot.name}`).toBe(
-                    true,
-                );
+                expect(style.prompt.includes(slot.prompt), `${style.name}.${slot.name}`).toBe(true);
+            }
+        }
+    });
+
+    it('gives every palette slot a CSS color for the renderer', () => {
+        for (const style of listStyles()) {
+            for (const slot of style.paletteSlots) {
+                expect(parseCssColorValue(slot.css), `${style.name}.${slot.name}`).toBe(slot.css);
             }
         }
     });

@@ -77,6 +77,9 @@ describe('IlloAI CLI', () => {
         const detail = detailOut.chunks.join('');
         expect(detail).toContain(loadStyle('memory_color_blocks').prompt);
         expect(detail).toContain('配色是这个式子的身份');
+        expect(detail).toContain('paper: 纯白 / #ffffff');
+        expect(detail).toContain('accent: 暖黄点 / #e6b84d');
+        expect(detail).not.toContain('defaultValue');
 
         const unknownOut = captureOutput();
         const unknownErr = captureOutput();
@@ -125,6 +128,8 @@ describe('IlloAI CLI', () => {
         });
         expect(projectCode).toBe(0);
         expect(projectOut.chunks.join('')).toContain('Style: freehand_doodle');
+        expect(projectOut.chunks.join('')).toContain('paper: 纯白 / #ffffff');
+        expect(projectOut.chunks.join('')).toContain('fill: 雾蓝加陶土色 / #8a9aaa');
         expect(projectOut.chunks.join('')).toContain('Images: 0');
     });
 
@@ -213,6 +218,8 @@ describe('IlloAI CLI', () => {
         expect(renderHtml.mock.calls[0]?.[0].outputPath).toBe(outputPath);
         expect(renderHtml.mock.calls[0]?.[0].html).toContain('Workspace card');
         expect(renderHtml.mock.calls[0]?.[0].html).toContain('暖白');
+        expect(renderHtml.mock.calls[0]?.[0].html).toContain('#f4efe6');
+        expect(renderHtml.mock.calls[0]?.[0].html).toContain('--illo-paper: #f4efe6');
         const historyLines = readFileSync(join(cwd, '.illoai', 'history.jsonl'), 'utf8')
             .trimEnd()
             .split('\n');
@@ -222,11 +229,11 @@ describe('IlloAI CLI', () => {
             createdAt: '2026-08-23T00:00:00.000Z',
             style: 'minimal_watercolor',
             palette: {
-                paper: '暖白',
-                primary: '低饱和雾蓝与灰青绿',
-                secondary: '沙色、米白',
-                accent: '低饱和暖黄',
-                dark: '淡墨',
+                paper: { prompt: '暖白', css: '#f4efe6' },
+                primary: { prompt: '低饱和雾蓝与灰青绿', css: '#7a93a0' },
+                secondary: { prompt: '沙色、米白', css: '#d8cbb8' },
+                accent: { prompt: '低饱和暖黄', css: '#d4b56a' },
+                dark: { prompt: '淡墨', css: '#5c5a54' },
             },
             text: 'Workspace card',
             output: join('out', 'illoai-2026-08-23T00-00-00.000Z.png'),

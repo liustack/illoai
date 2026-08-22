@@ -37,9 +37,9 @@ export const freehandDoodle = {
         '刻意潦草',
     ],
     paletteSlots: [
-        { name: 'paper', role: '纸底', defaultValue: '纯白' },
-        { name: 'line', role: '线条', defaultValue: '浅灰墨色' },
-        { name: 'fill', role: '填色', defaultValue: '雾蓝加陶土色' },
+        { name: 'paper', role: '纸底', prompt: '纯白', css: '#ffffff' },
+        { name: 'line', role: '线条', prompt: '浅灰墨色', css: '#6b6b66' },
+        { name: 'fill', role: '填色', prompt: '雾蓝加陶土色', css: '#8a9aaa' },
     ],
     canvas: {
         strategy: 'paper-border',

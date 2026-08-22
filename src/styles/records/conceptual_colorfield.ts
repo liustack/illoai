@@ -37,11 +37,11 @@ export const conceptualColorfield = {
         '典型 AI 插画的过度完成感',
     ],
     paletteSlots: [
-        { name: 'background', role: '底色', defaultValue: '暖白' },
-        { name: 'primary', role: '主色域', defaultValue: '灰蓝' },
-        { name: 'dark', role: '人物与深色域', defaultValue: '深灰' },
-        { name: 'neutral', role: '中性色域', defaultValue: '米色' },
-        { name: 'accent', role: '唯一强调色', defaultValue: '柔和暖色' },
+        { name: 'background', role: '底色', prompt: '暖白', css: '#f4efe6' },
+        { name: 'primary', role: '主色域', prompt: '灰蓝', css: '#7d8fa3' },
+        { name: 'dark', role: '人物与深色域', prompt: '深灰', css: '#3a3a38' },
+        { name: 'neutral', role: '中性色域', prompt: '米色', css: '#e6dcc8' },
+        { name: 'accent', role: '唯一强调色', prompt: '柔和暖色', css: '#d4a574' },
     ],
     canvas: {
         strategy: 'full-bleed',

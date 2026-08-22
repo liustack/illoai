@@ -25,14 +25,15 @@ export const memoryColorBlocks = {
         '大面积暖棕暖陶土',
     ],
     paletteSlots: [
-        { name: 'paper', role: '纸底', defaultValue: '纯白' },
+        { name: 'paper', role: '纸底', prompt: '纯白', css: '#ffffff' },
         {
             name: 'landscape',
             role: '风景记忆',
-            defaultValue: '浅蓝、雾蓝、蓝灰、灰青绿、湖青、米白',
+            prompt: '浅蓝、雾蓝、蓝灰、灰青绿、湖青、米白',
+            css: '#8aa3b5',
         },
-        { name: 'figure', role: '人物轮廓', defaultValue: '墨色' },
-        { name: 'accent', role: '暖色点', defaultValue: '暖黄点' },
+        { name: 'figure', role: '人物轮廓', prompt: '墨色', css: '#1c1c1a' },
+        { name: 'accent', role: '暖色点', prompt: '暖黄点', css: '#e6b84d' },
     ],
     canvas: {
         strategy: 'paper-border',

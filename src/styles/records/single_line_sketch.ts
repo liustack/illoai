@@ -27,9 +27,9 @@ export const singleLineSketch = {
 背景永远是纯白，不加纸纹、不加底色、不加任何背景色块或环境铺色。`,
     avoid: ['优雅女性侧脸', '花卉线稿', '家居装饰画', '一笔画炫技', '写实轮廓', '复杂连续路径'],
     paletteSlots: [
-        { name: 'paper', role: '纸底', defaultValue: '纯白' },
-        { name: 'line', role: '线条', defaultValue: '墨灰' },
-        { name: 'fill', role: '填色', defaultValue: '雾蓝、陶土色' },
+        { name: 'paper', role: '纸底', prompt: '纯白', css: '#ffffff' },
+        { name: 'line', role: '线条', prompt: '墨灰', css: '#3d3d3a' },
+        { name: 'fill', role: '填色', prompt: '雾蓝、陶土色', css: '#8a9aaa' },
     ],
     canvas: {
         strategy: 'paper-border',

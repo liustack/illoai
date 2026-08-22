@@ -133,7 +133,7 @@ function formatStyleDetail(style: StyleDefinition): string {
         `canvas: ${style.canvas.strategy}`,
         `guidance: ${style.canvas.guidance}`,
         'palette:',
-        ...style.paletteSlots.map((slot) => `  ${slot.name}: ${slot.defaultValue}`),
+        ...style.paletteSlots.map((slot) => `  ${slot.name}: ${slot.prompt} / ${slot.css}`),
         'prompt:',
         style.prompt,
         '',
@@ -245,6 +245,7 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
             }
 
             const pack = loadStylePack(workspaceDir);
+            const palette = mergedPalette(pack);
             runtime.stdout.write(
                 [
                     `Project: ${pack.name}`,
@@ -252,7 +253,9 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                     `Style: ${pack.style}`,
                     `Composition: ${pack.composition.strategy}`,
                     'Palette:',
-                    ...Object.entries(pack.palette).map(([slot, value]) => `  ${slot}: ${value}`),
+                    ...Object.entries(palette).map(
+                        ([slot, value]) => `  ${slot}: ${value.prompt} / ${value.css}`,
+                    ),
                     `Images: ${listHistory(workspaceDir).length}`,
                     '',
                 ].join('\n'),

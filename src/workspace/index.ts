@@ -8,7 +8,13 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { loadFallbackStyle, loadStyle } from '../styles/loader.ts';
-import type { CanvasStrategy } from '../styles/schema.ts';
+import {
+    type CanvasStrategy,
+    isCssColorValue,
+    type PaletteSlotOverride,
+    type PaletteSlotValue,
+    parseCssColorValue,
+} from '../styles/schema.ts';
 import { writeWorkspaceIgnoreFile } from './ignore.ts';
 
 export const WORKSPACE_DIRNAME = '.illoai';
@@ -18,7 +24,7 @@ export const HISTORY_FILE = 'history.jsonl';
 export interface StylePack {
     name: string;
     style: string;
-    palette: Record<string, string>;
+    palette: Record<string, PaletteSlotOverride>;
     composition: {
         strategy: CanvasStrategy;
         guidance: string;
@@ -28,7 +34,7 @@ export interface StylePack {
 export interface HistoryRecord {
     createdAt: string;
     style: string;
-    palette: Record<string, string>;
+    palette: Record<string, PaletteSlotValue>;
     text: string;
     output: string;
 }
@@ -45,6 +51,7 @@ export interface CreatedWorkspace {
 
 const STYLE_PACK_KEYS = new Set(['name', 'style', 'palette', 'composition']);
 const COMPOSITION_KEYS = new Set(['strategy', 'guidance']);
+const PALETTE_SLOT_KEYS = new Set(['prompt', 'css']);
 const CANVAS_STRATEGIES = new Set<CanvasStrategy>(['paper-border', 'full-bleed']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -81,6 +88,44 @@ export function findWorkspace(startDir: string): string | undefined {
         }
         directory = parent;
     }
+}
+
+function parsePaletteSlotOverride(
+    packPath: string,
+    key: string,
+    value: unknown,
+): PaletteSlotOverride {
+    if (!isPlainObject(value)) {
+        invalidPack(packPath, `palette.${key}`, 'an object with "prompt" and/or "css" strings');
+    }
+
+    for (const field of Object.keys(value)) {
+        if (!PALETTE_SLOT_KEYS.has(field)) {
+            throw new Error(`${packPath} contains unknown key "palette.${key}.${field}".`);
+        }
+    }
+
+    const override: PaletteSlotOverride = {};
+    if ('prompt' in value) {
+        if (typeof value.prompt !== 'string' || value.prompt.trim() === '') {
+            invalidPack(packPath, `palette.${key}.prompt`, 'a non-empty string');
+        }
+        override.prompt = value.prompt;
+    }
+    if ('css' in value) {
+        if (typeof value.css !== 'string' || value.css.trim() === '') {
+            invalidPack(packPath, `palette.${key}.css`, 'a non-empty string');
+        }
+        if (!isCssColorValue(value.css)) {
+            invalidPack(packPath, `palette.${key}.css`, 'a CSS color value');
+        }
+        override.css = parseCssColorValue(value.css);
+    }
+    if (override.prompt === undefined && override.css === undefined) {
+        invalidPack(packPath, `palette.${key}`, 'an object with "prompt" and/or "css" strings');
+    }
+
+    return override;
 }
 
 export function loadStylePack(workspaceDir: string): StylePack {
@@ -124,15 +169,12 @@ export function loadStylePack(workspaceDir: string): StylePack {
         invalidPack(packPath, 'palette', 'an object');
     }
     const slotNames = new Set(style.paletteSlots.map((slot) => slot.name));
-    const palette: Record<string, string> = {};
+    const palette: Record<string, PaletteSlotOverride> = {};
     for (const [key, value] of Object.entries(parsed.palette)) {
         if (!slotNames.has(key)) {
             throw new Error(`${packPath} contains unknown palette slot "${key}".`);
         }
-        if (typeof value !== 'string') {
-            invalidPack(packPath, `palette.${key}`, 'a string');
-        }
-        palette[key] = value;
+        palette[key] = parsePaletteSlotOverride(packPath, key, value);
     }
 
     if (!isPlainObject(parsed.composition)) {
@@ -191,12 +233,14 @@ export function createWorkspace(cwd: string, options: CreateWorkspaceOptions): C
 
     const style =
         options.styleName === undefined ? loadFallbackStyle() : loadStyle(options.styleName);
+    const palette: Record<string, PaletteSlotOverride> = {};
+    for (const slot of style.paletteSlots) {
+        palette[slot.name] = { prompt: slot.prompt, css: slot.css };
+    }
     const pack: StylePack = {
         name,
         style: style.name,
-        palette: Object.fromEntries(
-            style.paletteSlots.map((slot) => [slot.name, slot.defaultValue]),
-        ),
+        palette,
         composition: {
             strategy: style.canvas.strategy,
             guidance: style.canvas.guidance,
@@ -222,6 +266,41 @@ function historyPath(workspaceDir: string): string {
     return join(workspaceDir, HISTORY_FILE);
 }
 
+function parseHistoryPaletteSlot(
+    filePath: string,
+    lineNumber: number,
+    key: string,
+    value: unknown,
+): PaletteSlotValue {
+    const location = `${filePath}:${lineNumber}`;
+    if (!isPlainObject(value)) {
+        throw new Error(
+            `${location} has invalid "palette.${key}". Expected an object with "prompt" and "css" strings.`,
+        );
+    }
+    for (const field of Object.keys(value)) {
+        if (!PALETTE_SLOT_KEYS.has(field)) {
+            throw new Error(`${location} contains unknown key "palette.${key}.${field}".`);
+        }
+    }
+    if (typeof value.prompt !== 'string' || value.prompt.trim() === '') {
+        throw new Error(
+            `${location} has invalid "palette.${key}.prompt". Expected a non-empty string.`,
+        );
+    }
+    if (typeof value.css !== 'string' || value.css.trim() === '') {
+        throw new Error(
+            `${location} has invalid "palette.${key}.css". Expected a non-empty string.`,
+        );
+    }
+    if (!isCssColorValue(value.css)) {
+        throw new Error(
+            `${location} has invalid "palette.${key}.css". Expected a CSS color value.`,
+        );
+    }
+    return { prompt: value.prompt, css: parseCssColorValue(value.css) };
+}
+
 function parseHistoryRecord(filePath: string, lineNumber: number, raw: string): HistoryRecord {
     let parsed: unknown;
     try {
@@ -240,14 +319,9 @@ function parseHistoryRecord(filePath: string, lineNumber: number, raw: string): 
     if (!isPlainObject(parsed.palette)) {
         throw new Error(`${filePath}:${lineNumber} has invalid "palette". Expected an object.`);
     }
-    const palette: Record<string, string> = {};
+    const palette: Record<string, PaletteSlotValue> = {};
     for (const [key, value] of Object.entries(parsed.palette)) {
-        if (typeof value !== 'string') {
-            throw new Error(
-                `${filePath}:${lineNumber} has invalid "palette.${key}". Expected a string.`,
-            );
-        }
-        palette[key] = value;
+        palette[key] = parseHistoryPaletteSlot(filePath, lineNumber, key, value);
     }
     return {
         createdAt: parsed.createdAt as string,
@@ -287,10 +361,15 @@ export function appendHistory(workspaceDir: string, record: HistoryRecord): stri
     return filePath;
 }
 
-export function mergedPalette(pack: StylePack): Record<string, string> {
+export function mergedPalette(pack: StylePack): Record<string, PaletteSlotValue> {
     const style = loadStyle(pack.style);
-    return {
-        ...Object.fromEntries(style.paletteSlots.map((slot) => [slot.name, slot.defaultValue])),
-        ...pack.palette,
-    };
+    const palette: Record<string, PaletteSlotValue> = {};
+    for (const slot of style.paletteSlots) {
+        const override = pack.palette[slot.name];
+        palette[slot.name] = {
+            prompt: override && override.prompt !== undefined ? override.prompt : slot.prompt,
+            css: override && override.css !== undefined ? override.css : slot.css,
+        };
+    }
+    return palette;
 }

@@ -18,19 +18,38 @@ describe('built-in render template', () => {
 
     it('applies CSS palette values and still embeds descriptive slot text', () => {
         const withHex = createRenderTemplate('Accent override', {
-            palette: { accent: '#ff4d00', paper: '暖白' },
+            palette: {
+                paper: { prompt: '暖白', css: '#f4efe6' },
+                accent: { prompt: '低饱和暖黄', css: '#ff4d00' },
+            },
         });
         expect(withHex).toContain('--illo-accent: #ff4d00');
-        expect(withHex).toContain(`--illo-paper: ${DEFAULT_RENDER_COLORS.paper}`);
+        expect(withHex).toContain('--illo-paper: #f4efe6');
+        expect(withHex).not.toMatch(/--illo-paper:\s*暖白/);
         expect(withHex).toContain('暖白');
+        expect(withHex).toContain('id="illoai-palette"');
+        expect(withHex).toContain('&quot;prompt&quot;:&quot;暖白&quot;');
+        expect(withHex).toContain('&quot;css&quot;:&quot;#f4efe6&quot;');
 
         const descriptive = createRenderTemplate('Descriptive palette', {
-            palette: { paper: '纯白', accent: '雾蓝加陶土色' },
+            palette: {
+                paper: { prompt: '纯白', css: '#ffffff' },
+                fill: { prompt: '雾蓝加陶土色', css: '#8a9aaa' },
+            },
         });
-        expect(descriptive).toContain(`--illo-paper: ${DEFAULT_RENDER_COLORS.paper}`);
+        expect(descriptive).toContain('--illo-paper: #ffffff');
         expect(descriptive).toContain(`--illo-accent: ${DEFAULT_RENDER_COLORS.accent}`);
         expect(descriptive).toContain('纯白');
         expect(descriptive).toContain('雾蓝加陶土色');
+        expect(descriptive).not.toMatch(/--illo-(paper|ink|accent):\s*纯白/);
+    });
+
+    it('throws when a provided css value is not a CSS color', () => {
+        expect(() =>
+            createRenderTemplate('Bad css', {
+                palette: { paper: { prompt: '暖白', css: '暖白' } },
+            }),
+        ).toThrowError('Invalid CSS color "暖白".');
     });
 
     it('keeps paragraph copy above the footer on the shallow 5:2 canvas', async () => {

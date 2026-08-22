@@ -1,13 +1,13 @@
+import { type PaletteSlotValue, parseCssColorValue } from '../styles/schema.ts';
+
 export const DEFAULT_RENDER_COLORS = {
     paper: '#f1eee6',
     ink: '#161711',
     accent: '#1746d1',
 } as const;
 
-const CSS_COLOR = /^(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgb\(|hsl\(|oklch\()/;
-
 export interface RenderTemplateOptions {
-    palette?: Record<string, string>;
+    palette?: Record<string, PaletteSlotValue>;
 }
 
 function escapeHtml(value: string): string {
@@ -19,28 +19,31 @@ function escapeHtml(value: string): string {
         .replaceAll("'", '&#39;');
 }
 
-export function cssColorValue(value: string | undefined): string | undefined {
-    if (value === undefined) {
+function slotCss(palette: Record<string, PaletteSlotValue>, name: string): string | undefined {
+    const slot = palette[name];
+    if (slot === undefined) {
         return undefined;
     }
-    const trimmed = value.trim();
-    return CSS_COLOR.test(trimmed) ? trimmed : undefined;
+    if (typeof slot.css !== 'string') {
+        throw new Error(`Palette slot "${name}" is missing a CSS color.`);
+    }
+    return parseCssColorValue(slot.css);
 }
 
-export function resolveRenderColors(palette: Record<string, string> = {}): {
+export function resolveRenderColors(palette: Record<string, PaletteSlotValue> = {}): {
     paper: string;
     ink: string;
     accent: string;
 } {
     return {
         paper:
-            cssColorValue(palette.paper) ??
-            cssColorValue(palette.background) ??
+            slotCss(palette, 'paper') ??
+            slotCss(palette, 'background') ??
             DEFAULT_RENDER_COLORS.paper,
-        ink: cssColorValue(palette.dark) ?? DEFAULT_RENDER_COLORS.ink,
+        ink: slotCss(palette, 'dark') ?? DEFAULT_RENDER_COLORS.ink,
         accent:
-            cssColorValue(palette.accent) ??
-            cssColorValue(palette.primary) ??
+            slotCss(palette, 'accent') ??
+            slotCss(palette, 'primary') ??
             DEFAULT_RENDER_COLORS.accent,
     };
 }
@@ -50,6 +53,12 @@ export function createRenderTemplate(text: string, options: RenderTemplateOption
     const characterCount = Array.from(text.trim()).length;
     const density = characterCount <= 48 ? 'short' : characterCount <= 120 ? 'medium' : 'long';
     const palette = options.palette ?? {};
+    for (const [name, slot] of Object.entries(palette)) {
+        if (typeof slot.css !== 'string') {
+            throw new Error(`Palette slot "${name}" is missing a CSS color.`);
+        }
+        parseCssColorValue(slot.css);
+    }
     const colors = resolveRenderColors(palette);
     const paletteJson = escapeHtml(JSON.stringify(palette));
 

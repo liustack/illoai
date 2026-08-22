@@ -28,7 +28,8 @@ export const monetEditorialImpressionism = {
         {
             name: 'colors',
             role: '光色',
-            defaultValue: '雾蓝、淡紫、灰绿、乳黄、粉橙、淡青、柔粉、暖白',
+            prompt: '雾蓝、淡紫、灰绿、乳黄、粉橙、淡青、柔粉、暖白',
+            css: '#9bb0c4',
         },
     ],
     canvas: {

@@ -18,7 +18,8 @@ export const luminousImpasto = {
         {
             name: 'colors',
             role: '油彩',
-            defaultValue: '清澈蓝、青绿、翠绿、暖黄、橙、珊瑚粉、厚白',
+            prompt: '清澈蓝、青绿、翠绿、暖黄、橙、珊瑚粉、厚白',
+            css: '#3a8fd4',
         },
     ],
     canvas: {

@@ -38,9 +38,9 @@ export const extremeMinimalAbstraction = {
         '无法解释的抽象装饰',
     ],
     paletteSlots: [
-        { name: 'paper', role: '纸底', defaultValue: '暖白' },
-        { name: 'colors', role: '主色', defaultValue: '1 到 3 种低饱和颜色' },
-        { name: 'accent', role: '强调点', defaultValue: '一处暖色' },
+        { name: 'paper', role: '纸底', prompt: '暖白', css: '#f4efe6' },
+        { name: 'colors', role: '主色', prompt: '1 到 3 种低饱和颜色', css: '#8b9aa8' },
+        { name: 'accent', role: '强调点', prompt: '一处暖色', css: '#c9895a' },
     ],
     canvas: {
         strategy: 'paper-border',

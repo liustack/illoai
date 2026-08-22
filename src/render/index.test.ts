@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createWorkspace, loadStylePack, mergedPalette } from '../workspace/index.ts';
 import { renderHtml } from './index.ts';
 import { createRenderTemplate } from './template.ts';
 
@@ -89,5 +90,44 @@ describe('HTML renderer', () => {
         }
 
         expect(requests).toBe(0);
+    }, 30_000);
+
+    it('changes the rendered PNG when project palette css changes', async () => {
+        const cwd = mkdtempSync(join(tmpdir(), 'illoai-palette-render-'));
+        tempDirectories.push(cwd);
+        const created = createWorkspace(cwd, { name: 'demo', styleName: 'minimal_watercolor' });
+        const text = 'Palette css probe';
+        const canvas = { width: 320, height: 180, scale: 1 as const };
+
+        const beforePath = join(created.path, 'out', 'before.png');
+        await renderHtml({
+            html: createRenderTemplate(text, {
+                palette: mergedPalette(loadStylePack(created.path)),
+            }),
+            outputPath: beforePath,
+            ...canvas,
+        });
+
+        const packPath = join(created.path, 'project.json');
+        const pack = JSON.parse(readFileSync(packPath, 'utf8')) as {
+            palette: { paper: { prompt: string; css: string } };
+        };
+        pack.palette.paper.css = '#ff0000';
+        writeFileSync(packPath, `${JSON.stringify(pack, null, 2)}\n`, 'utf8');
+
+        const afterPath = join(created.path, 'out', 'after.png');
+        await renderHtml({
+            html: createRenderTemplate(text, {
+                palette: mergedPalette(loadStylePack(created.path)),
+            }),
+            outputPath: afterPath,
+            ...canvas,
+        });
+
+        const before = readFileSync(beforePath);
+        const after = readFileSync(afterPath);
+        expect(before.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+        expect(after.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+        expect(after.equals(before)).toBe(false);
     }, 30_000);
 });

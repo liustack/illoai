@@ -31,11 +31,12 @@ export const risographEditorial = {
         '泛黄发暗的纸',
     ],
     paletteSlots: [
-        { name: 'paper', role: '纸底', defaultValue: '亮白' },
+        { name: 'paper', role: '纸底', prompt: '亮白', css: '#ffffff' },
         {
             name: 'spot',
             role: '专色',
-            defaultValue: '荧光粉加靛蓝、或亮蓝加荧光橙、或青加荧光粉加黄',
+            prompt: '荧光粉加靛蓝、或亮蓝加荧光橙、或青加荧光粉加黄',
+            css: '#ff48a5',
         },
     ],
     canvas: {

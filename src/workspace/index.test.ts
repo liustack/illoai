@@ -10,6 +10,7 @@ import {
     findWorkspace,
     listHistory,
     loadStylePack,
+    mergedPalette,
 } from './index.ts';
 
 const tempDirectories: string[] = [];
@@ -41,7 +42,12 @@ describe('project workspace', () => {
         expect(created.path).toBe(join(cwd, '.illoai'));
         expect(created.pack.style).toBe('minimal_watercolor');
         expect(created.pack.palette).toEqual(
-            Object.fromEntries(style.paletteSlots.map((slot) => [slot.name, slot.defaultValue])),
+            Object.fromEntries(
+                style.paletteSlots.map((slot) => [
+                    slot.name,
+                    { prompt: slot.prompt, css: slot.css },
+                ]),
+            ),
         );
         expect(existsSync(join(created.path, 'refs'))).toBe(true);
         expect(existsSync(join(created.path, 'out'))).toBe(true);
@@ -106,13 +112,84 @@ describe('project workspace', () => {
         );
     });
 
+    it('rejects a leftover string palette slot instead of treating it as a prompt', () => {
+        const cwd = tempDir('illoai-pack-string-');
+        const workspaceDir = createWorkspace(cwd, { name: 'demo' }).path;
+        const packPath = join(workspaceDir, 'project.json');
+        writeFileSync(
+            packPath,
+            `${JSON.stringify({
+                name: 'demo',
+                style: 'memory_color_blocks',
+                palette: { paper: '纯白' },
+                composition: { strategy: 'paper-border', guidance: 'x' },
+            })}\n`,
+            'utf8',
+        );
+        expect(() => loadStylePack(workspaceDir)).toThrowError(
+            `${packPath} has invalid "palette.paper". Expected an object with "prompt" and/or "css" strings.`,
+        );
+    });
+
+    it('rejects invalid palette css at the project.json boundary', () => {
+        const cwd = tempDir('illoai-pack-css-');
+        const workspaceDir = createWorkspace(cwd, { name: 'demo' }).path;
+        const packPath = join(workspaceDir, 'project.json');
+        writeFileSync(
+            packPath,
+            `${JSON.stringify({
+                name: 'demo',
+                style: 'memory_color_blocks',
+                palette: { paper: { prompt: '纯白', css: '暖白' } },
+                composition: { strategy: 'paper-border', guidance: 'x' },
+            })}\n`,
+            'utf8',
+        );
+        expect(() => loadStylePack(workspaceDir)).toThrowError(
+            `${packPath} has invalid "palette.paper.css". Expected a CSS color value.`,
+        );
+    });
+
+    it('lets a slot override only css or only prompt and fills the rest from the catalog', () => {
+        const cwd = tempDir('illoai-pack-partial-');
+        const created = createWorkspace(cwd, { name: 'demo', styleName: 'minimal_watercolor' });
+        const packPath = join(created.path, 'project.json');
+
+        writeFileSync(
+            packPath,
+            `${JSON.stringify({
+                name: 'demo',
+                style: 'minimal_watercolor',
+                palette: {
+                    paper: { css: '#ff0000' },
+                    accent: { prompt: '低饱和暖黄' },
+                },
+                composition: created.pack.composition,
+            })}\n`,
+            'utf8',
+        );
+
+        const loaded = loadStylePack(created.path);
+        expect(loaded.palette).toEqual({
+            paper: { css: '#ff0000' },
+            accent: { prompt: '低饱和暖黄' },
+        });
+        expect(mergedPalette(loaded)).toEqual({
+            paper: { prompt: '暖白', css: '#ff0000' },
+            primary: { prompt: '低饱和雾蓝与灰青绿', css: '#7a93a0' },
+            secondary: { prompt: '沙色、米白', css: '#d8cbb8' },
+            accent: { prompt: '低饱和暖黄', css: '#d4b56a' },
+            dark: { prompt: '淡墨', css: '#5c5a54' },
+        });
+    });
+
     it('appends a history.jsonl line for each generation', () => {
         const cwd = tempDir('illoai-history-');
         const workspaceDir = createWorkspace(cwd, { name: 'demo' }).path;
         const first = {
             createdAt: '2026-08-23T00:00:00.000Z',
             style: 'memory_color_blocks',
-            palette: { paper: '纯白' },
+            palette: { paper: { prompt: '纯白', css: '#ffffff' } },
             text: 'One visual family',
             output: join(workspaceDir, 'out', 'illoai.png'),
         };
@@ -149,5 +226,24 @@ describe('history paths', () => {
         const raw = readFileSync(join(created.path, 'history.jsonl'), 'utf8').trim();
         expect(JSON.parse(raw).output).toBe(join('out', 'a.png'));
         expect(raw).not.toContain(cwd);
+    });
+
+    it('rejects a leftover string palette slot in history.jsonl', () => {
+        const cwd = tempDir('illoai-history-string-');
+        const created = createWorkspace(cwd, { name: 'demo' });
+        writeFileSync(
+            join(created.path, 'history.jsonl'),
+            `${JSON.stringify({
+                createdAt: '2026-08-23T00:00:00.000Z',
+                style: 'memory_color_blocks',
+                palette: { paper: '纯白' },
+                text: 'old',
+                output: join('out', 'a.png'),
+            })}\n`,
+            'utf8',
+        );
+        expect(() => listHistory(created.path)).toThrowError(
+            `${join(created.path, 'history.jsonl')}:1 has invalid "palette.paper". Expected an object with "prompt" and "css" strings.`,
+        );
     });
 });
