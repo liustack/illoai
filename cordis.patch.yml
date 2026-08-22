@@ -1,0 +1,4 @@
+# dsh bundle layer: mount the IlloAI plugin through the package root export.
+- insert:
+    - id: illoai
+      name: '@liustack/illoai'

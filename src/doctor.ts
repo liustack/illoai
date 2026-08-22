@@ -1,0 +1,156 @@
+import { accessSync, constants, type Stats, statSync } from 'node:fs';
+import { chromium } from 'playwright';
+import { CONFIG_PATH } from './config.ts';
+
+const MINIMUM_NODE_VERSION = { major: 22, minor: 19, patch: 0 } as const;
+
+export type DoctorStatus = 'ok' | 'warn' | 'error';
+
+export interface DoctorCheck {
+    id: 'node' | 'chromium' | 'config-permissions';
+    label: string;
+    status: DoctorStatus;
+    message: string;
+}
+
+export interface DoctorReport {
+    healthy: boolean;
+    checks: DoctorCheck[];
+}
+
+export interface DoctorOptions {
+    nodeVersion?: string;
+    chromiumPath?: string;
+    configPath?: string;
+    platform?: NodeJS.Platform;
+}
+
+function nodeVersionCheck(version: string): DoctorCheck {
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+    if (!match) {
+        return {
+            id: 'node',
+            label: 'Node.js',
+            status: 'error',
+            message: `Cannot parse Node.js version "${version}".`,
+        };
+    }
+
+    const [major, minor, patch] = match.slice(1).map(Number) as [number, number, number];
+    const meetsMinimum =
+        major > MINIMUM_NODE_VERSION.major ||
+        (major === MINIMUM_NODE_VERSION.major &&
+            (minor > MINIMUM_NODE_VERSION.minor ||
+                (minor === MINIMUM_NODE_VERSION.minor && patch >= MINIMUM_NODE_VERSION.patch)));
+
+    return {
+        id: 'node',
+        label: 'Node.js',
+        status: meetsMinimum ? 'ok' : 'error',
+        message: meetsMinimum
+            ? `${version} meets the minimum 22.19.0.`
+            : `${version} is too old. Install Node.js 22.19.0 or newer.`,
+    };
+}
+
+function chromiumCheck(executablePath: string, platform: NodeJS.Platform): DoctorCheck {
+    try {
+        const info = statSync(executablePath);
+        if (!info.isFile()) {
+            throw new Error('the resolved path is not a file');
+        }
+        accessSync(executablePath, platform === 'win32' ? constants.F_OK : constants.X_OK);
+        return {
+            id: 'chromium',
+            label: 'Chromium',
+            status: 'ok',
+            message: `Installed at ${executablePath}.`,
+        };
+    } catch {
+        return {
+            id: 'chromium',
+            label: 'Chromium',
+            status: 'error',
+            message: `Not available at ${executablePath}. Run pnpm exec playwright install chromium.`,
+        };
+    }
+}
+
+function configPermissionsCheck(configPath: string, platform: NodeJS.Platform): DoctorCheck {
+    let info: Stats;
+    try {
+        info = statSync(configPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return {
+                id: 'config-permissions',
+                label: 'Config permissions',
+                status: 'warn',
+                message: `${configPath} does not exist. Run illoai config init when you need it.`,
+            };
+        }
+        return {
+            id: 'config-permissions',
+            label: 'Config permissions',
+            status: 'error',
+            message: `Cannot inspect ${configPath}.`,
+        };
+    }
+
+    if (!info.isFile()) {
+        return {
+            id: 'config-permissions',
+            label: 'Config permissions',
+            status: 'error',
+            message: `${configPath} is not a regular file.`,
+        };
+    }
+
+    if (platform === 'win32') {
+        return {
+            id: 'config-permissions',
+            label: 'Config permissions',
+            status: 'ok',
+            message: `${configPath} exists. Windows manages access through ACLs.`,
+        };
+    }
+
+    const mode = info.mode & 0o777;
+    if (mode !== 0o600) {
+        return {
+            id: 'config-permissions',
+            label: 'Config permissions',
+            status: 'error',
+            message: `${configPath} has mode ${mode.toString(8)}. Expected 600.`,
+        };
+    }
+
+    return {
+        id: 'config-permissions',
+        label: 'Config permissions',
+        status: 'ok',
+        message: `${configPath} has mode 600.`,
+    };
+}
+
+export function runDoctor(options: DoctorOptions = {}): DoctorReport {
+    const platform = options.platform ?? process.platform;
+    const checks = [
+        nodeVersionCheck(options.nodeVersion ?? process.versions.node),
+        chromiumCheck(options.chromiumPath ?? chromium.executablePath(), platform),
+        configPermissionsCheck(options.configPath ?? CONFIG_PATH, platform),
+    ];
+
+    return {
+        healthy: checks.every((check) => check.status !== 'error'),
+        checks,
+    };
+}
+
+export function renderDoctorReport(report: DoctorReport): string {
+    const lines = [`IlloAI doctor: ${report.healthy ? 'healthy' : 'needs attention'}`];
+    for (const check of report.checks) {
+        lines.push(`[${check.status}] ${check.label}: ${check.message}`);
+    }
+    return lines.join('\n');
+}
