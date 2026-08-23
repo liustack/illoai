@@ -27,7 +27,7 @@ Do not add:
 - silent source substitution when a requested source is unavailable
 - defaults that hide malformed internal state
 
-The ten-style catalog is in `src/styles/`. Each style prompt is copied unchanged from the artwork source. Palette slots and canvas strategy are metadata on that record, not extra prompt layers. Post-processing tools remain outside this pass.
+The ten-style catalog is in `src/styles/`. Each style prompt is copied unchanged from the artwork source. Palette slots and canvas strategy are metadata on that record, not extra prompt layers. Recenter and contact-sheet tools remain outside this pass. local-model crop and resize are part of generation, not those tools.
 
 ## Technical Approach
 
@@ -37,6 +37,7 @@ The ten-style catalog is in `src/styles/`. Each style prompt is copied unchanged
 - Config writes use mode 0600. Invalid JSON and schema violations fail at the config boundary.
 - The render engine uses Playwright Chromium directly. It disables JavaScript and blocks HTTP and HTTPS requests, then captures the requested viewport as PNG.
 - Size presets are production pixels. `scale` controls Chromium device scale and therefore output pixel density.
+- `local-model` asks the backend for the native generate size, then crops and resizes in-process with `sharp`. It does not shell out to sips or ImageMagick.
 - Each style record is self-contained. Its full prompt is copied unchanged and followed by one subject description.
 - A project workspace lives at `.illoai/` inside the user project. Discovery walks up from the current directory. Missing workspaces are reported, never created silently.
 - Workspace ignore rules live only in `src/workspace/ignore.ts`. The CLI writes `.illoai/.gitignore` (`/out/`, `/cache/`, `/refs/`) and never touches the user's `.gitignore` or `.git/info/exclude`. `project.json` and `history.jsonl` stay commitable.
@@ -58,7 +59,9 @@ src/
 │   ├── prompt.ts           # Style prompt plus 主体, conditional palette replace
 │   ├── argv.ts             # Codex/Grok/Claude argv and named --ref files
 │   ├── provider.ts         # Backend selection with no silent fallback
-│   └── run.ts              # rm, spawn, timeout, on-disk image verification
+│   ├── canvas.ts           # Native generate size, crop box, production size
+│   ├── finish.ts           # sharp crop then resize
+│   └── run.ts              # rm, spawn, captured stdio, on-disk image verification
 ├── render/
 │   ├── index.ts            # Playwright HTML to PNG engine
 │   ├── index.test.ts

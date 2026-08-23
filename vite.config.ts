@@ -25,6 +25,7 @@ export default defineConfig({
             external: [
                 'commander',
                 'playwright',
+                'sharp',
                 ...builtinModules,
                 ...builtinModules.map((name) => `node:${name}`),
             ],

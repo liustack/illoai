@@ -1,12 +1,17 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LOCAL_MODEL_TIMEOUT_MS, type LocalModelSpawnRequest, runLocalModel } from './index.ts';
+import {
+    LOCAL_MODEL_TIMEOUT_MS,
+    type LocalModelSpawnRequest,
+    runLocalModel,
+    spawnCapturedProcess,
+} from './index.ts';
 
 const tempDirectories: string[] = [];
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff, 0xee]);
 
 afterEach(() => {
     for (const directory of tempDirectories.splice(0)) {
@@ -27,6 +32,7 @@ function baseInput(outputPath: string) {
         prompt: 'Use your image generation capability. 主体：海岸.',
         referencePaths: [] as string[],
         outputPath,
+        preset: '3:2' as const,
     };
 }
 
@@ -62,13 +68,11 @@ describe('local-model run', () => {
         expect(message).toMatch(/local-model|codex/);
     });
 
-    it('rejects missing, empty, and non-image output and accepts PNG and JPEG magic', async () => {
+    it('rejects missing, empty, and non-image output', async () => {
         const directory = tempDir('illoai-run-verify-');
         const missingPath = join(directory, 'missing.png');
         const emptyPath = join(directory, 'empty.png');
         const randomPath = join(directory, 'random.png');
-        const pngPath = join(directory, 'ok.png');
-        const jpegPath = join(directory, 'ok.jpg');
 
         const missingError = await runLocalModel({
             ...baseInput(missingPath),
@@ -108,30 +112,6 @@ describe('local-model run', () => {
         expect(randomError).toBeInstanceOf(Error);
         expect((randomError as Error).message).toMatch(/invalid/i);
         expect((randomError as Error).message).toMatch(/local-model|codex/);
-
-        const pngSpawn = vi.fn(async (_request: LocalModelSpawnRequest) => {
-            writeFileSync(pngPath, Buffer.concat([PNG_MAGIC, Buffer.from('extra')]));
-        });
-        await expect(
-            runLocalModel({
-                ...baseInput(pngPath),
-                spawn: pngSpawn,
-            }),
-        ).resolves.toEqual({ outputPath: pngPath });
-        expect(pngSpawn.mock.calls[0]?.[0]).toMatchObject({
-            stdin: 'ignore',
-            timeoutMs: LOCAL_MODEL_TIMEOUT_MS,
-        });
-
-        const jpegSpawn = vi.fn(async (_request: LocalModelSpawnRequest) => {
-            writeFileSync(jpegPath, Buffer.concat([JPEG_MAGIC, Buffer.from('extra')]));
-        });
-        await expect(
-            runLocalModel({
-                ...baseInput(jpegPath),
-                spawn: jpegSpawn,
-            }),
-        ).resolves.toEqual({ outputPath: jpegPath });
     });
 
     it('rejects a hung local-model spawn after the injected timeout', async () => {
@@ -154,4 +134,147 @@ describe('local-model run', () => {
         expect(message).toContain('codex');
         expect(message).toContain('50');
     }, 3000);
+});
+
+describe('spawnCapturedProcess', () => {
+    function memoryWriter() {
+        const chunks: string[] = [];
+        return {
+            chunks,
+            backendOutput: {
+                write(chunk: string) {
+                    chunks.push(chunk);
+                },
+            },
+        };
+    }
+
+    it('keeps backend output out of the writer when verbose is false', async () => {
+        const { chunks, backendOutput } = memoryWriter();
+        await spawnCapturedProcess({
+            command: process.execPath,
+            args: ['-e', "console.log('BACKEND_NOISE'); console.error('BACKEND_NOISE');"],
+            timeoutMs: 10000,
+            verbose: false,
+            provider: 'codex',
+            backendOutput,
+        });
+        expect(chunks.join('')).not.toContain('BACKEND_NOISE');
+    });
+
+    it('writes backend output when verbose is true', async () => {
+        const { chunks, backendOutput } = memoryWriter();
+        await spawnCapturedProcess({
+            command: process.execPath,
+            args: ['-e', "console.log('BACKEND_NOISE'); console.error('BACKEND_NOISE');"],
+            timeoutMs: 10000,
+            verbose: true,
+            provider: 'codex',
+            backendOutput,
+        });
+        expect(chunks.join('')).toContain('BACKEND_NOISE');
+    });
+
+    it('captures backend output on non-zero exit even when verbose is false', async () => {
+        const { chunks, backendOutput } = memoryWriter();
+        let thrown: unknown;
+        try {
+            await spawnCapturedProcess({
+                command: process.execPath,
+                args: ['-e', "console.log('BACKEND_NOISE'); process.exit(2);"],
+                timeoutMs: 10000,
+                verbose: false,
+                provider: 'codex',
+                backendOutput,
+            });
+        } catch (error) {
+            thrown = error;
+        }
+        expect(chunks.join('')).toContain('BACKEND_NOISE');
+        expect(thrown).toBeInstanceOf(Error);
+        expect(thrown instanceof Error ? thrown.message : String(thrown)).toBe(
+            'local-model via codex exited with code 2.',
+        );
+    });
+});
+
+describe('local-model finish after verify', () => {
+    it('finishes a verified PNG at 3:2 output size', async () => {
+        const outputPath = join(tempDir('illoai-run-finish-png-'), 'out.png');
+        const spawn = vi.fn(async (_request: LocalModelSpawnRequest) => {
+            await sharp({
+                create: {
+                    width: 1536,
+                    height: 1024,
+                    channels: 3,
+                    background: { r: 0, g: 255, b: 0 },
+                },
+            })
+                .png()
+                .toFile(outputPath);
+        });
+
+        await expect(
+            runLocalModel({
+                ...baseInput(outputPath),
+                spawn,
+            }),
+        ).resolves.toEqual({ outputPath });
+        const meta = await sharp(outputPath).metadata();
+        expect(meta.width).toBe(1536);
+        expect(meta.height).toBe(1024);
+    });
+
+    it('finishes a verified JPEG at 3:2 output size', async () => {
+        const outputPath = join(tempDir('illoai-run-finish-jpeg-'), 'out.jpg');
+        const spawn = vi.fn(async (_request: LocalModelSpawnRequest) => {
+            await sharp({
+                create: {
+                    width: 1536,
+                    height: 1024,
+                    channels: 3,
+                    background: { r: 0, g: 255, b: 0 },
+                },
+            })
+                .jpeg()
+                .toFile(outputPath);
+        });
+
+        await expect(
+            runLocalModel({
+                ...baseInput(outputPath),
+                spawn,
+            }),
+        ).resolves.toEqual({ outputPath });
+        const meta = await sharp(outputPath).metadata();
+        expect(meta.width).toBe(1536);
+        expect(meta.height).toBe(1024);
+    });
+
+    it('crops and resizes a 16:9 generate PNG to production pixels', async () => {
+        const outputPath = join(tempDir('illoai-run-16x9-'), 'ok.png');
+        const spawn = vi.fn(async (_request: LocalModelSpawnRequest) => {
+            await sharp({
+                create: {
+                    width: 1536,
+                    height: 1024,
+                    channels: 3,
+                    background: { r: 12, g: 34, b: 56 },
+                },
+            })
+                .png()
+                .toFile(outputPath);
+        });
+
+        await expect(
+            runLocalModel({
+                ...baseInput(outputPath),
+                preset: '16:9',
+                spawn,
+            }),
+        ).resolves.toEqual({ outputPath });
+        const meta = await sharp(outputPath).metadata();
+        expect(meta.width).toBe(1600);
+        expect(meta.height).toBe(900);
+    });
 });

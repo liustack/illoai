@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getDimensionPreset } from '../dimensions.ts';
 import { loadStyle } from '../styles/loader.ts';
 import type { PaletteSlotValue, StyleDefinition } from '../styles/schema.ts';
 import { createWorkspace, loadStylePack, mergedPalette } from '../workspace/index.ts';
@@ -155,21 +154,16 @@ describe('local-model prompt assembly', () => {
         expect(formatSizePhrase(1000, 1000)).toBe('Landscape 1000x1000');
     });
 
-    it('builds an envelope with save path, style body, 主体, size phrase, and the generate-only closer', () => {
+    it('builds a 3:2 envelope with save path, style body, 主体, generate size, and the generate-only closer', () => {
         const style = loadStyle('memory_color_blocks');
         const subject = '一只背对的人';
         const outputPath = '/tmp/illoai-out.png';
-        const landscape = getDimensionPreset('3:2');
-        const portrait = getDimensionPreset('3:4');
-        const merged = paletteFromStyle(style);
-
         const envelope = buildEnvelopePrompt({
             style,
             subject,
-            mergedPalette: merged,
+            mergedPalette: paletteFromStyle(style),
             outputPath,
-            width: landscape.width,
-            height: landscape.height,
+            preset: '3:2',
             provider: 'codex',
         });
 
@@ -178,57 +172,61 @@ describe('local-model prompt assembly', () => {
         );
         expect(envelope).toContain(style.prompt);
         expect(envelope).toContain(`主体：${subject}`);
+        expect(envelope).not.toContain('构图集中在中带、上下留纸');
         expect(envelope).toContain('Landscape 1536x1024');
         expect(envelope).toContain('Generate the image file only, do not do anything else.');
         expect(envelope).not.toContain('3072');
         expect(envelope).not.toContain('2048');
+    });
 
-        const portraitEnvelope = buildEnvelopePrompt({
+    it('puts 16:9 generate size in the envelope, not production pixels', () => {
+        const style = loadStyle('memory_color_blocks');
+        const envelope = buildEnvelopePrompt({
             style,
-            subject,
-            mergedPalette: merged,
-            outputPath,
-            width: portrait.width,
-            height: portrait.height,
+            subject: '一只背对的人',
+            mergedPalette: paletteFromStyle(style),
+            outputPath: '/tmp/illoai-out.png',
+            preset: '16:9',
             provider: 'codex',
         });
-        expect(portraitEnvelope).toContain('竖版 1242x1656');
-        expect(portraitEnvelope).not.toContain('2484');
-        expect(portraitEnvelope).not.toContain('3312');
 
-        expect(
-            buildEnvelopePrompt({
-                style,
-                subject,
-                mergedPalette: merged,
-                outputPath,
-                width: 800,
-                height: 1200,
-                provider: 'codex',
-            }),
-        ).toContain('竖版 800x1200');
-        expect(
-            buildEnvelopePrompt({
-                style,
-                subject,
-                mergedPalette: merged,
-                outputPath,
-                width: 1200,
-                height: 800,
-                provider: 'codex',
-            }),
-        ).toContain('Landscape 1200x800');
-        expect(
-            buildEnvelopePrompt({
-                style,
-                subject,
-                mergedPalette: merged,
-                outputPath,
-                width: 1000,
-                height: 1000,
-                provider: 'codex',
-            }),
-        ).toContain('Landscape 1000x1000');
+        expect(envelope).toContain('Landscape 1536x1024');
+        expect(envelope).not.toContain('1600x900');
+    });
+
+    it('appends the 5:2 composition suffix to 主体 and keeps generate size', () => {
+        const style = loadStyle('memory_color_blocks');
+        const subject = '一只背对的人';
+        const envelope = buildEnvelopePrompt({
+            style,
+            subject,
+            mergedPalette: paletteFromStyle(style),
+            outputPath: '/tmp/illoai-out.png',
+            preset: '5:2',
+            provider: 'codex',
+        });
+
+        expect(envelope).toContain('Landscape 1536x1024');
+        expect(envelope).toContain('构图集中在中带、上下留纸');
+        expect(envelope).toContain(`主体：${subject}。构图集中在中带、上下留纸`);
+        expect(envelope).not.toContain('1600x640');
+    });
+
+    it('puts 3:4 generate size in the envelope, not production pixels', () => {
+        const style = loadStyle('memory_color_blocks');
+        const envelope = buildEnvelopePrompt({
+            style,
+            subject: '一只背对的人',
+            mergedPalette: paletteFromStyle(style),
+            outputPath: '/tmp/illoai-out.png',
+            preset: '3:4',
+            provider: 'codex',
+        });
+
+        expect(envelope).toContain('竖版 1024x1536');
+        expect(envelope).not.toContain('1242x1656');
+        expect(envelope).not.toContain('2484');
+        expect(envelope).not.toContain('3312');
     });
 
     it('appends grok and claude reference paths after the envelope closer, not inside it', () => {
@@ -244,8 +242,7 @@ describe('local-model prompt assembly', () => {
                 subject: '一只背对的人',
                 mergedPalette: merged,
                 outputPath,
-                width: 1536,
-                height: 1024,
+                preset: '3:2',
                 provider,
                 referencePaths: refs,
             });
@@ -268,8 +265,7 @@ describe('local-model prompt assembly', () => {
             subject: '一只背对的人',
             mergedPalette: paletteFromStyle(style),
             outputPath: '/tmp/illoai-out.png',
-            width: 1536,
-            height: 1024,
+            preset: '3:2',
             provider: 'codex',
             referencePaths: refs,
         });

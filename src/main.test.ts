@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setConfigValue } from './config.ts';
+import type { LocalModelRunInput } from './local-model/index.ts';
 import { createProgram, runCli } from './main.ts';
 import { loadStyle } from './styles/loader.ts';
 
@@ -53,7 +54,7 @@ function mockRender() {
 }
 
 function mockRunLocalModel() {
-    return vi.fn(async (input: { outputPath: string }) => ({
+    return vi.fn(async (input: LocalModelRunInput) => ({
         outputPath: input.outputPath,
     }));
 }
@@ -401,11 +402,20 @@ describe('IlloAI CLI', () => {
         );
         expect(renderHtml).not.toHaveBeenCalled();
         expect(runLocalModel).toHaveBeenCalledOnce();
-        expect(runLocalModel.mock.calls[0]?.[0]).toMatchObject({
+        const localInput = runLocalModel.mock.calls[0]?.[0] as
+            | { prompt?: string; preset?: string; verbose?: boolean }
+            | undefined;
+        if (localInput === undefined) {
+            throw new Error('runLocalModel was not called.');
+        }
+        expect(localInput).toMatchObject({
             provider: 'codex',
             commandPath: '/fake/codex',
             outputPath,
+            preset: '3:2',
+            verbose: false,
         });
+        expect(localInput.prompt).toContain('Landscape 1536x1024');
 
         const historyPath = join(cwd, '.illoai', 'history.jsonl');
         const historyText = readFileSync(historyPath, 'utf8');
@@ -423,6 +433,114 @@ describe('IlloAI CLI', () => {
             output: join('out', 'illoai-2026-08-23T00-00-00.000Z.png'),
         });
         expect(historyText).not.toContain(cwd);
+    });
+
+    it('prints 16:9 production canvas and keeps generate size in the prompt', async () => {
+        const cwd = tempDir('illoai-local-16-9-');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+
+        const runLocalModel = mockRunLocalModel();
+        const stdout = captureOutput();
+        const stderr = captureOutput();
+        const now = new Date('2026-08-23T00:00:00.000Z');
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'A figure on a shore',
+                '--source',
+                'local-model',
+                '--preset',
+                '16:9',
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                runLocalModel,
+                lookupCommand: () => '/fake/codex',
+                stdout,
+                stderr,
+                now: () => now,
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        expect(stderr.chunks).toEqual([]);
+        expect(stdout.chunks.join('')).toContain('Canvas: 1600x900');
+        expect(runLocalModel).toHaveBeenCalledOnce();
+        const input = runLocalModel.mock.calls[0]?.[0];
+        if (input === undefined) {
+            throw new Error('runLocalModel was not called.');
+        }
+        expect(input.preset).toBe('16:9');
+        expect(input.prompt).toContain('Landscape 1536x1024');
+        expect(input.prompt).not.toContain('1600x900');
+    });
+
+    it('passes verbose true to runLocalModel', async () => {
+        const cwd = tempDir('illoai-local-verbose-');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+        const runLocalModel = mockRunLocalModel();
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'A figure on a shore',
+                '--source',
+                'local-model',
+                '--via',
+                'codex',
+                '--preset',
+                '3:2',
+                '--verbose',
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                runLocalModel,
+                lookupCommand: (name) => (name === 'codex' ? '/fake/codex' : undefined),
+                stdout: captureOutput(),
+                now: () => new Date('2026-08-23T00:00:00.000Z'),
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        expect(runLocalModel.mock.calls[0]?.[0]).toMatchObject({ verbose: true });
+    });
+
+    it('rejects local-model width overrides that leave preset sizes', async () => {
+        const cwd = tempDir('illoai-local-width-');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+        const runLocalModel = mockRunLocalModel();
+        const stderr = captureOutput();
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'A figure on a shore',
+                '--source',
+                'local-model',
+                '--width',
+                '800',
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                runLocalModel,
+                lookupCommand: () => '/fake/codex',
+                stdout: captureOutput(),
+                stderr,
+            },
+        );
+
+        expect(exitCode).toBe(1);
+        expect(runLocalModel).not.toHaveBeenCalled();
+        expect(stderr.chunks.join('')).toBe(
+            'Error: local-model uses preset sizes. Omit --width and --height.\n',
+        );
     });
 
     it('prints named --ref paths before calling runLocalModel', async () => {

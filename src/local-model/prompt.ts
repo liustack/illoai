@@ -1,5 +1,7 @@
 import type { LocalModelProvider } from '../config.ts';
+import type { DimensionPresetName } from '../dimensions.ts';
 import type { PaletteSlotValue, StyleDefinition } from '../styles/schema.ts';
+import { getLocalModelCanvasPlan } from './canvas.ts';
 
 const ENVELOPE_CLOSER = 'Generate the image file only, do not do anything else.';
 
@@ -75,15 +77,19 @@ export function buildEnvelopePrompt(input: {
     subject: string;
     mergedPalette: Record<string, PaletteSlotValue>;
     outputPath: string;
-    width: number;
-    height: number;
+    preset: DimensionPresetName;
     provider: LocalModelProvider;
     referencePaths?: string[];
 }): string {
+    const plan = getLocalModelCanvasPlan(input.preset);
     const styleBody = stylePromptWithPalette(input.style, input.mergedPalette);
+    const subjectLine =
+        plan.subjectSuffix === undefined
+            ? `主体：${input.subject}`
+            : `主体：${input.subject}。${plan.subjectSuffix}`;
     const envelope =
         `Use your image generation capability to create one image and save it to ${input.outputPath}. ` +
-        `${styleBody}. 主体：${input.subject}. ${formatSizePhrase(input.width, input.height)}. ${ENVELOPE_CLOSER}`;
+        `${styleBody}. ${subjectLine}. ${formatSizePhrase(plan.generateWidth, plan.generateHeight)}. ${ENVELOPE_CLOSER}`;
 
     if (
         (input.provider === 'grok' || input.provider === 'claude') &&

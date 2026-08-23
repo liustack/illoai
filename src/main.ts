@@ -27,6 +27,7 @@ import { type DoctorReport, lookupCommandOnPath, renderDoctorReport, runDoctor }
 import {
     buildEnvelopePrompt,
     runLocalModel as defaultRunLocalModel,
+    getLocalModelCanvasPlan,
     resolveNamedRefFiles,
     selectLocalModelProvider,
 } from './local-model/index.ts';
@@ -205,6 +206,7 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
         .option('--scale <factor>', 'Device scale factor from 1 to 4')
         .option('--via <provider>', 'Local model CLI: codex, grok, or claude')
         .option('--ref <path>', 'Named reference image (repeatable)', collectRefs, [])
+        .option('--verbose', 'Print backend CLI output')
         .action(
             async (
                 text: string,
@@ -217,6 +219,7 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                     scale?: string;
                     via?: string;
                     ref?: string[];
+                    verbose?: boolean;
                 },
             ) => {
                 const flags = flagsFromOptions(options);
@@ -234,6 +237,16 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                     const workspaceDir = findWorkspace(runtime.cwd);
                     if (workspaceDir === undefined) {
                         throw new Error('No IlloAI workspace found. Run illoai new <name> first.');
+                    }
+
+                    const plan = getLocalModelCanvasPlan(effective.render.preset);
+                    if (
+                        effective.render.width !== plan.outputWidth ||
+                        effective.render.height !== plan.outputHeight
+                    ) {
+                        throw new Error(
+                            'local-model uses preset sizes. Omit --width and --height.',
+                        );
                     }
 
                     const pack = loadStylePack(workspaceDir);
@@ -269,8 +282,7 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                         subject: text,
                         mergedPalette: palette,
                         outputPath,
-                        width: effective.render.width,
-                        height: effective.render.height,
+                        preset: effective.render.preset,
                         provider: selected.provider,
                         referencePaths: refs,
                     });
@@ -280,6 +292,9 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                         prompt,
                         referencePaths: refs,
                         outputPath,
+                        preset: effective.render.preset,
+                        verbose: Boolean(options.verbose),
+                        backendOutput: runtime.stderr,
                     });
 
                     appendHistory(workspaceDir, {
@@ -296,7 +311,7 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                     const lines = [
                         `Created ${result.outputPath}`,
                         `Backend: ${selected.provider}`,
-                        `Canvas: ${effective.render.width}x${effective.render.height}`,
+                        `Canvas: ${plan.outputWidth}x${plan.outputHeight}`,
                     ];
                     if (style.name === 'extreme_minimal_abstraction') {
                         lines.push('This style fills a relationship, not a subject.');

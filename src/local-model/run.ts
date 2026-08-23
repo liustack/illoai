@@ -10,7 +10,10 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 import type { LocalModelProvider } from '../config.ts';
+import type { DimensionPresetName } from '../dimensions.ts';
 import { buildLocalModelArgv } from './argv.ts';
+import { getLocalModelCanvasPlan } from './canvas.ts';
+import { finishLocalModelImage } from './finish.ts';
 
 export const LOCAL_MODEL_TIMEOUT_MS = 300_000;
 
@@ -27,8 +30,11 @@ export interface LocalModelRunInput {
     prompt: string;
     referencePaths: string[];
     outputPath: string;
+    preset: DimensionPresetName;
     timeoutMs?: number;
     spawn?: (request: LocalModelSpawnRequest) => Promise<void>;
+    verbose?: boolean;
+    backendOutput?: { write(chunk: string): unknown };
 }
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
@@ -79,14 +85,37 @@ function withTimeout(
     });
 }
 
-function defaultSpawn(
-    request: LocalModelSpawnRequest,
-    provider: LocalModelProvider,
-): Promise<void> {
+export async function spawnCapturedProcess(input: {
+    command: string;
+    args: readonly string[];
+    timeoutMs: number;
+    verbose: boolean;
+    provider: LocalModelProvider;
+    backendOutput?: { write(chunk: string): unknown };
+}): Promise<void> {
     return new Promise((resolve, reject) => {
-        const child = spawn(request.command, [...request.args], {
-            stdio: ['ignore', 'inherit', 'inherit'],
+        const child = spawn(input.command, [...input.args], {
+            stdio: ['ignore', 'pipe', 'pipe'],
         });
+        const stdout = child.stdout;
+        const stderr = child.stderr;
+        if (stdout === null || stderr === null) {
+            reject(new Error('local-model spawn is missing stdout or stderr pipes.'));
+            return;
+        }
+
+        const chunks: Buffer[] = [];
+        const append = (chunk: Buffer): void => {
+            chunks.push(chunk);
+        };
+        stdout.on('data', append);
+        stderr.on('data', append);
+
+        const dumpCaptured = (): void => {
+            const writer = input.backendOutput === undefined ? process.stderr : input.backendOutput;
+            writer.write(Buffer.concat(chunks).toString());
+        };
+
         let settled = false;
         const timer = setTimeout(() => {
             child.kill('SIGTERM');
@@ -100,10 +129,13 @@ function defaultSpawn(
                 return;
             }
             settled = true;
+            dumpCaptured();
             reject(
-                new Error(`local-model via ${provider} timed out after ${request.timeoutMs}ms.`),
+                new Error(
+                    `local-model via ${input.provider} timed out after ${input.timeoutMs}ms.`,
+                ),
             );
-        }, request.timeoutMs);
+        }, input.timeoutMs);
 
         child.on('error', (error) => {
             if (settled) {
@@ -121,10 +153,14 @@ function defaultSpawn(
             settled = true;
             clearTimeout(timer);
             if (code === 0) {
+                if (input.verbose) {
+                    dumpCaptured();
+                }
                 resolve();
                 return;
             }
-            reject(new Error(`local-model via ${provider} exited with code ${code}.`));
+            dumpCaptured();
+            reject(new Error(`local-model via ${input.provider} exited with code ${code}.`));
         });
     });
 }
@@ -186,9 +222,22 @@ export async function runLocalModel(input: LocalModelRunInput): Promise<{ output
     if (input.spawn !== undefined) {
         await withTimeout(input.spawn(request), timeoutMs, input.provider);
     } else {
-        await defaultSpawn(request, input.provider);
+        await spawnCapturedProcess({
+            command: request.command,
+            args: request.args,
+            timeoutMs,
+            verbose: Boolean(input.verbose),
+            provider: input.provider,
+            backendOutput: input.backendOutput,
+        });
     }
 
     verifyOutput(input.outputPath, input.provider);
+    const plan = getLocalModelCanvasPlan(input.preset);
+    await finishLocalModelImage({
+        sourcePath: input.outputPath,
+        outputPath: input.outputPath,
+        plan,
+    });
     return { outputPath: input.outputPath };
 }
