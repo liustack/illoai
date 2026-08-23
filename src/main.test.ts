@@ -617,8 +617,8 @@ describe('IlloAI CLI', () => {
         );
 
         expect(exitCode).toBe(0);
-        // This style fills a relationship, not a subject. Implementers should print this sentence.
         expect(stdout.chunks.join('')).toContain('This style fills a relationship, not a subject.');
+        expect(stdout.chunks.join('')).toContain('same event in the article');
     });
 
     it('allows --via when config source is already local-model', async () => {

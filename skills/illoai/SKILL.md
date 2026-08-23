@@ -65,7 +65,11 @@ After the command finishes, verify that the PNG exists at the reported path. Tel
 
 `local-model` needs a workspace. The style lives in `.illoai/project.json`. Do not create a workspace silently.
 
-Copy the selected style prompt in full, then append one subject description (`主体：...`). Do not assemble extra style, palette, or discipline layers.
+Copy the selected style prompt in full. Do not assemble extra style, palette, or discipline layers.
+
+If the style has no subject slot, append one subject description (`主体：...`). If it declares a subject slot, fill that slot with the user text and do not append a trailing `主体：` paragraph. This is still the same two pieces of content, not a new layer.
+
+`extreme_minimal_abstraction` is the only catalog style with a slot. The slot is a relationship, not a theme. The relationship must still be the same event in the article. Do not invent a separate abstract idea. A bad fill from 2026-08-23 used "主体正要迈出去，但一根来自身后的线仍牵着它" for the theme "一个人站在半开的门前，门外是清晨", and dropped the door and the morning. The filled relationship must keep the person, the half-open door, and the morning.
 
 ```bash
 illoai gen "<subject>" --source local-model --via codex --preset 3:2
@@ -74,8 +78,6 @@ illoai gen "<subject>" --source local-model --via grok --ref /absolute/a.png
 
 `--via` chooses `codex`, `grok`, or `claude`. It is only valid with `--source local-model`. `--ref` names files only. Do not glob. Do not pass a directory.
 
-`extreme_minimal_abstraction` fills a relationship, not a subject.
-
 After the command finishes, verify the image at the reported path. Tell the user: `Privacy: local-model used your own CLI. We did not handle the data.`
 
 ## Preserve the visual system
@@ -83,7 +85,7 @@ After the command finishes, verify the image at the reported path. Tell the user
 - Lock one style for the whole article or product.
 - Keep one project palette across covers, article illustrations, social crops, and transition graphics.
 - Treat every style prompt as self-contained source text.
-- Copy the selected style prompt in full, unchanged, then append one subject description.
+- Copy the selected style prompt in full, unchanged, then append one subject description. If the style declares a subject slot, fill that slot instead of appending `主体：`.
 - Never assemble a prompt from global style, palette, and discipline fragments. Those layers interfere with each style in different ways.
 - Review for over-completion. Reject images that finish every object, fill every gap, or turn every surface into realistic material.
 - Follow the style canvas strategy. Paper styles keep a real paper border. Full-bleed color fields fill the canvas.

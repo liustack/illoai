@@ -62,6 +62,7 @@ describe('local-model prompt assembly', () => {
             mergedPalette: mergedPalette(pack),
         });
 
+        expect(style.subjectSlot).toBeUndefined();
         expect(result.startsWith(style.prompt)).toBe(true);
         expect(result).toBe(`${style.prompt}\n\n主体：${subject}`);
         expect(result).toContain('\n主体：一只背对的人');
@@ -273,5 +274,132 @@ describe('local-model prompt assembly', () => {
         expect(envelope).toContain('Generate the image file only, do not do anything else.');
         expect(envelope).not.toContain(refs[0]);
         expect(envelope).not.toContain(refs[1]);
+    });
+
+    it('fills the extreme_minimal_abstraction relationship slot in place and does not append 主体', () => {
+        const style = loadStyle('extreme_minimal_abstraction');
+        const subject = '一个人站在半开的门前，门外是清晨';
+        const marker = '【填写原始主题中必须保留的关系】';
+
+        const result = buildStyleAndSubjectPrompt({
+            style,
+            subject,
+            mergedPalette: paletteFromStyle(style),
+        });
+
+        expect(result).toContain(subject);
+        expect(result).not.toContain(marker);
+        expect(result).not.toContain('【');
+        expect(result).not.toContain('】');
+        expect(result).not.toContain('主体：');
+        expect(result).toBe(style.prompt.split(marker).join(subject));
+    });
+
+    it('keeps the catalog paragraph structure after filling the subject slot', () => {
+        const style = loadStyle('extreme_minimal_abstraction');
+        const subject = '一个人站在半开的门前，门外是清晨';
+        const marker = '【填写原始主题中必须保留的关系】';
+        const filled = style.prompt.split(marker).join(subject);
+
+        const result = buildStyleAndSubjectPrompt({
+            style,
+            subject,
+            mergedPalette: paletteFromStyle(style),
+        });
+
+        expect(result.split('\n\n')).toHaveLength(style.prompt.split('\n\n').length);
+        expect(result).not.toBe(`${filled}\n\n主体：${subject}`);
+        expect(result).toBe(filled);
+    });
+
+    it('builds a slotted 3:2 envelope with the subject in the style body and no 主体 clause', () => {
+        const style = loadStyle('extreme_minimal_abstraction');
+        const subject = '一个人站在半开的门前，门外是清晨';
+        const outputPath = '/tmp/illoai-out.png';
+        const envelope = buildEnvelopePrompt({
+            style,
+            subject,
+            mergedPalette: paletteFromStyle(style),
+            outputPath,
+            preset: '3:2',
+            provider: 'codex',
+        });
+
+        expect(envelope).toContain(subject);
+        expect(envelope).not.toContain('【填写原始主题中必须保留的关系】');
+        expect(envelope).not.toContain('【');
+        expect(envelope).not.toContain('】');
+        expect(envelope).not.toContain('主体：');
+        expect(envelope).toContain(
+            `Use your image generation capability to create one image and save it to ${outputPath}`,
+        );
+        expect(envelope).toContain('Landscape 1536x1024');
+        expect(envelope).toContain('Generate the image file only, do not do anything else.');
+    });
+
+    it('keeps the 5:2 composition suffix as its own clause when the subject is slotted', () => {
+        const style = loadStyle('extreme_minimal_abstraction');
+        const envelope = buildEnvelopePrompt({
+            style,
+            subject: '一个人站在半开的门前，门外是清晨',
+            mergedPalette: paletteFromStyle(style),
+            outputPath: '/tmp/illoai-out.png',
+            preset: '5:2',
+            provider: 'codex',
+        });
+
+        expect(envelope).toContain('构图集中在中带、上下留纸');
+        expect(envelope).not.toContain('主体：');
+        expect(envelope).toContain('Landscape 1536x1024');
+    });
+
+    it('fails fast when a declared subject-slot marker is missing from the prompt', () => {
+        const style = loadStyle('memory_color_blocks');
+        const fake: StyleDefinition = {
+            ...style,
+            subjectSlot: { marker: '【填写原始主题中必须保留的关系】' },
+        };
+
+        expect(() =>
+            buildStyleAndSubjectPrompt({
+                style: fake,
+                subject: '一个人站在半开的门前，门外是清晨',
+                mergedPalette: paletteFromStyle(style),
+            }),
+        ).toThrowError(/not found|subject slot marker/i);
+    });
+
+    it('fails fast when a declared subject-slot marker appears more than once', () => {
+        const style = loadStyle('memory_color_blocks');
+        const marker = '【填写原始主题中必须保留的关系】';
+        const fake: StyleDefinition = {
+            ...style,
+            prompt: `${marker}\n\n${style.prompt}\n\n${marker}`,
+            subjectSlot: { marker },
+        };
+
+        expect(() =>
+            buildStyleAndSubjectPrompt({
+                style: fake,
+                subject: '一个人站在半开的门前，门外是清晨',
+                mergedPalette: paletteFromStyle(style),
+            }),
+        ).toThrowError(/exactly once|more than once|subject slot marker/i);
+    });
+
+    it('fails fast when a declared subject-slot marker is empty', () => {
+        const style = loadStyle('memory_color_blocks');
+        const fake: StyleDefinition = {
+            ...style,
+            subjectSlot: { marker: '' },
+        };
+
+        expect(() =>
+            buildStyleAndSubjectPrompt({
+                style: fake,
+                subject: '一个人站在半开的门前，门外是清晨',
+                mergedPalette: paletteFromStyle(style),
+            }),
+        ).toThrowError(/empty/i);
     });
 });

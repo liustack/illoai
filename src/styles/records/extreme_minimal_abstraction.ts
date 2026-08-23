@@ -50,4 +50,8 @@ export const extremeMinimalAbstraction = {
     isFallback: false,
     coverOnly: false,
     requiresScene: false,
+    subjectSlot: {
+        marker: '【填写原始主题中必须保留的关系】',
+        hint: 'This style fills a relationship, not a subject. Keep that relationship as the same event in the article. Do not invent a separate abstract idea.',
+    },
 } as const satisfies StyleDefinition;

@@ -114,4 +114,17 @@ describe('built-in style catalog', () => {
         }
         expect(paper.length + fullBleed.length).toBe(10);
     });
+
+    it('declares a subject slot only on extreme_minimal_abstraction', () => {
+        const slotted = listStyles().filter((style) => style.subjectSlot !== undefined);
+        expect(slotted.map((style) => style.name)).toEqual(['extreme_minimal_abstraction']);
+
+        const style = loadStyle('extreme_minimal_abstraction');
+        const marker = '【填写原始主题中必须保留的关系】';
+        expect(style.subjectSlot).toEqual({
+            marker,
+            hint: 'This style fills a relationship, not a subject. Keep that relationship as the same event in the article. Do not invent a separate abstract idea.',
+        });
+        expect(style.prompt.split(marker)).toHaveLength(2);
+    });
 });

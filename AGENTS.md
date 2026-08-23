@@ -38,7 +38,7 @@ The ten-style catalog is in `src/styles/`. Each style prompt is copied unchanged
 - The render engine uses Playwright Chromium directly. It disables JavaScript and blocks HTTP and HTTPS requests, then captures the requested viewport as PNG.
 - Size presets are production pixels. `scale` controls Chromium device scale and therefore output pixel density.
 - `local-model` asks the backend for the native generate size, then crops and resizes in-process with `sharp`. It does not shell out to sips or ImageMagick.
-- Each style record is self-contained. Its full prompt is copied unchanged and followed by one subject description.
+- Each style record is self-contained. Copy its full prompt unchanged. Append one subject description, or fill a declared subject slot in place instead of appending.
 - A project workspace lives at `.illoai/` inside the user project. Discovery walks up from the current directory. Missing workspaces are reported, never created silently.
 - Workspace ignore rules live only in `src/workspace/ignore.ts`. The CLI writes `.illoai/.gitignore` (`/out/`, `/cache/`, `/refs/`) and never touches the user's `.gitignore` or `.git/info/exclude`. `project.json` and `history.jsonl` stay commitable.
 - Tests live next to their modules as `*.test.ts` or `*.test.js`.

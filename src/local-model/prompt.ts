@@ -63,13 +63,45 @@ function stylePromptWithPalette(
     return replacePaletteParagraph(style.prompt, formatPaletteParagraph(style, mergedPalette));
 }
 
+function fillSubjectSlot(prompt: string, marker: string, subject: string): string {
+    if (marker === '') {
+        throw new Error('Subject slot marker must not be empty.');
+    }
+    const parts = prompt.split(marker);
+    if (parts.length === 1) {
+        throw new Error(`Subject slot marker "${marker}" was not found in the style prompt.`);
+    }
+    if (parts.length !== 2) {
+        throw new Error(
+            `Subject slot marker "${marker}" must appear exactly once. Found ${parts.length - 1}.`,
+        );
+    }
+    return parts.join(subject);
+}
+
+function preparedStylePrompt(input: {
+    style: StyleDefinition;
+    subject: string;
+    mergedPalette: Record<string, PaletteSlotValue>;
+}): { body: string; slotted: boolean } {
+    const body = stylePromptWithPalette(input.style, input.mergedPalette);
+    const slot = input.style.subjectSlot;
+    if (slot === undefined) {
+        return { body, slotted: false };
+    }
+    return { body: fillSubjectSlot(body, slot.marker, input.subject), slotted: true };
+}
+
 export function buildStyleAndSubjectPrompt(input: {
     style: StyleDefinition;
     subject: string;
     mergedPalette: Record<string, PaletteSlotValue>;
 }): string {
-    const body = stylePromptWithPalette(input.style, input.mergedPalette);
-    return `${body}\n\n主体：${input.subject}`;
+    const prepared = preparedStylePrompt(input);
+    if (prepared.slotted) {
+        return prepared.body;
+    }
+    return `${prepared.body}\n\n主体：${input.subject}`;
 }
 
 export function buildEnvelopePrompt(input: {
@@ -82,14 +114,24 @@ export function buildEnvelopePrompt(input: {
     referencePaths?: string[];
 }): string {
     const plan = getLocalModelCanvasPlan(input.preset);
-    const styleBody = stylePromptWithPalette(input.style, input.mergedPalette);
-    const subjectLine =
-        plan.subjectSuffix === undefined
-            ? `主体：${input.subject}`
-            : `主体：${input.subject}。${plan.subjectSuffix}`;
+    const prepared = preparedStylePrompt(input);
+    const size = formatSizePhrase(plan.generateWidth, plan.generateHeight);
+    let afterBody: string;
+    if (prepared.slotted) {
+        afterBody =
+            plan.subjectSuffix === undefined
+                ? `${prepared.body}. ${size}`
+                : `${prepared.body}. ${plan.subjectSuffix}. ${size}`;
+    } else {
+        const subjectLine =
+            plan.subjectSuffix === undefined
+                ? `主体：${input.subject}`
+                : `主体：${input.subject}。${plan.subjectSuffix}`;
+        afterBody = `${prepared.body}. ${subjectLine}. ${size}`;
+    }
     const envelope =
         `Use your image generation capability to create one image and save it to ${input.outputPath}. ` +
-        `${styleBody}. ${subjectLine}. ${formatSizePhrase(plan.generateWidth, plan.generateHeight)}. ${ENVELOPE_CLOSER}`;
+        `${afterBody}. ${ENVELOPE_CLOSER}`;
 
     if (
         (input.provider === 'grok' || input.provider === 'claude') &&

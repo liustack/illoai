@@ -19,6 +19,13 @@ export interface PaletteSlotOverride {
     css?: string;
 }
 
+export interface SubjectSlot {
+    /** Exact placeholder text inside `prompt`. Replaced with the subject. */
+    marker: string;
+    /** Printed by the CLI when this style is used. */
+    hint?: string;
+}
+
 export interface StyleDefinition {
     name: string;
     displayName: string;
@@ -34,6 +41,7 @@ export interface StyleDefinition {
     isFallback: boolean;
     coverOnly: boolean;
     requiresScene: boolean;
+    subjectSlot?: SubjectSlot;
 }
 
 const CSS_COLOR = /^(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgb\(|hsl\(|oklch\()/;

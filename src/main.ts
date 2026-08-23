@@ -314,8 +314,8 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                         `Backend: ${selected.provider}`,
                         `Canvas: ${plan.outputWidth}x${plan.outputHeight}`,
                     ];
-                    if (style.name === 'extreme_minimal_abstraction') {
-                        lines.push('This style fills a relationship, not a subject.');
+                    if (style.subjectSlot?.hint !== undefined) {
+                        lines.push(style.subjectSlot.hint);
                     }
                     lines.push(
                         'Privacy: local-model used your own CLI. We did not handle the data.',
