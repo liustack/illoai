@@ -11,13 +11,13 @@ The product contract is article-level consistency. A cover, body illustration, s
 Phase one currently ships these working surfaces:
 
 - `render` turns the built-in HTML template and user text into a local PNG
+- `local-model` calls the user's own Codex, Grok, or Claude CLI to generate an image
 - `styles` lists the ten self-contained catalog styles
 - `new` and `project` manage a per-project `.illoai/` workspace
 
 These command surfaces exist but must return a clear not-implemented error until their domain is built:
 
 - `stock` for free image search
-- `local-model` for Codex, Grok, and Claude CLI generation
 
 Do not add:
 
@@ -49,10 +49,16 @@ src/
 ├── main.ts                 # Commander entry and command assembly
 ├── config.ts               # Layered config, typed writes, private file mode, redacted display
 ├── config.test.ts
-├── doctor.ts               # Offline Node, Chromium, and config permission checks
+├── doctor.ts               # Offline Node, Chromium, config permission, and local CLI checks
 ├── doctor.test.ts
 ├── dimensions.ts           # Four production size presets
 ├── dimensions.test.ts
+├── local-model/
+│   ├── index.ts            # Prompt envelope, argv, provider selection, spawn
+│   ├── prompt.ts           # Style prompt plus 主体, conditional palette replace
+│   ├── argv.ts             # Codex/Grok/Claude argv and named --ref files
+│   ├── provider.ts         # Backend selection with no silent fallback
+│   └── run.ts              # rm, spawn, timeout, on-disk image verification
 ├── render/
 │   ├── index.ts            # Playwright HTML to PNG engine
 │   ├── index.test.ts
@@ -83,6 +89,7 @@ illoai styles
 illoai new demo --style memory_color_blocks
 illoai project
 illoai gen "One visual family across the whole story" --source render --preset 16:9
+illoai gen "A figure on a shore" --source local-model --via codex --preset 3:2
 illoai config init
 illoai config set render.preset 3:2
 illoai config show

@@ -1,13 +1,14 @@
 import { accessSync, constants, type Stats, statSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { chromium } from 'playwright';
-import { CONFIG_PATH } from './config.ts';
+import { CONFIG_PATH, LOCAL_MODEL_PROVIDERS, type LocalModelProvider } from './config.ts';
 
 const MINIMUM_NODE_VERSION = { major: 22, minor: 19, patch: 0 } as const;
 
 export type DoctorStatus = 'ok' | 'warn' | 'error';
 
 export interface DoctorCheck {
-    id: 'node' | 'chromium' | 'config-permissions';
+    id: 'node' | 'chromium' | 'config-permissions' | LocalModelProvider;
     label: string;
     status: DoctorStatus;
     message: string;
@@ -23,6 +24,7 @@ export interface DoctorOptions {
     chromiumPath?: string;
     configPath?: string;
     platform?: NodeJS.Platform;
+    lookupCommand?: (name: string) => string | undefined;
 }
 
 function nodeVersionCheck(version: string): DoctorCheck {
@@ -133,12 +135,61 @@ function configPermissionsCheck(configPath: string, platform: NodeJS.Platform): 
     };
 }
 
+export function lookupCommandOnPath(
+    name: string,
+    envPath = process.env.PATH ?? '',
+): string | undefined {
+    if (envPath === '') {
+        return undefined;
+    }
+
+    for (const directory of envPath.split(delimiter)) {
+        if (directory === '') {
+            continue;
+        }
+        const candidate = join(directory, name);
+        try {
+            if (statSync(candidate).isFile()) {
+                return candidate;
+            }
+        } catch {
+            // PATH 上可能有不可读目录，跳过即可。
+        }
+    }
+
+    return undefined;
+}
+
+function localModelCliCheck(
+    name: LocalModelProvider,
+    lookup: (commandName: string) => string | undefined,
+): DoctorCheck {
+    const found = lookup(name);
+    if (found === undefined) {
+        return {
+            id: name,
+            label: name,
+            status: 'warn',
+            message: `${name} is not installed.`,
+        };
+    }
+
+    return {
+        id: name,
+        label: name,
+        status: 'ok',
+        message: `${name} found at ${found}.`,
+    };
+}
+
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
     const platform = options.platform ?? process.platform;
+    const lookup = options.lookupCommand ?? lookupCommandOnPath;
     const checks = [
         nodeVersionCheck(options.nodeVersion ?? process.versions.node),
         chromiumCheck(options.chromiumPath ?? chromium.executablePath(), platform),
         configPermissionsCheck(options.configPath ?? CONFIG_PATH, platform),
+        ...LOCAL_MODEL_PROVIDERS.map((name) => localModelCliCheck(name, lookup)),
     ];
 
     return {

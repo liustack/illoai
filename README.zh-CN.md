@@ -21,10 +21,11 @@ IlloAI 围绕项目级视觉记忆设计。一套风格、一套配色和一种�
 - 十式自包含风格库，可用 `illoai styles` 列出
 - 项目工作区 `.illoai/`，保存选定式、配色、产物和历史
 - 分层配置、0600 私密存储和脱敏展示
-- Node.js、Chromium 与配置权限的离线诊断
+- 通过用户本机的 Codex、Grok 或 Claude CLI 生图
+- Node.js、Chromium、配置权限与本机 CLI 的离线诊断
 - Agent skill 与 DeepSeek Harness 分发骨架
 
-`stock` 与 `local-model` 已注册命令入口，但对应业务尚未实现。调用时会返回明确错误，不会静默换路。
+`stock` 已注册命令入口，对应业务尚未实现。调用时会返回明确错误。本机 CLI 没装时会点名要装什么，不会静默换路。
 
 ## 快速开始
 
@@ -35,9 +36,10 @@ pnpm build
 node dist/main.js styles
 node dist/main.js new demo --style memory_color_blocks
 node dist/main.js gen "让整篇文章的每张图都属于同一个视觉体系"
+node dist/main.js gen "一只背对的人站在湖边" --source local-model --via codex --preset 3:2
 ```
 
-有工作区时，PNG 写到 `.illoai/out/`。没有工作区时，默认输出为 `illoai.png`。render 档全程留在本机。
+有工作区时，PNG 写到 `.illoai/out/`。没有工作区时，默认输出为 `illoai.png`。render 档全程留在本机。`local-model` 走用户自己的 CLI，我们不经手数据。
 
 可以选择生产尺寸，也可以直接覆盖画布参数：
 
@@ -74,7 +76,7 @@ illoai config show
 illoai doctor
 ```
 
-doctor 不发起网络请求。它检查当前 Node.js 版本、本机 Playwright Chromium 可执行文件与配置文件权限。
+doctor 不发起网络请求。它检查当前 Node.js 版本、本机 Playwright Chromium 可执行文件、配置文件权限，以及 PATH 上有没有 `codex`、`grok`、`claude`。本机 CLI 没装记为警告，不会因此判成不健康。
 
 ## 风格契约
 
@@ -90,7 +92,7 @@ doctor 不发起网络请求。它检查当前 Node.js 版本、本机 Playwrigh
 | :-- | :-- |
 | `render` | 全程本地 |
 | `stock` | 规划中，只发送搜索关键词 |
-| `local-model` | 规划中，使用用户自己的本机 CLI 与订阅 |
+| `local-model` | 使用用户自己的本机 CLI 与订阅，我们不经手数据 |
 
 ## 开发
 

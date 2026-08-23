@@ -1,6 +1,14 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setConfigValue } from './config.ts';
 import { createProgram, runCli } from './main.ts';
@@ -42,6 +50,19 @@ function mockRender() {
             generatedAt: '2026-08-23T00:00:00.000Z',
         },
     }));
+}
+
+function mockRunLocalModel() {
+    return vi.fn(async (input: { outputPath: string }) => ({
+        outputPath: input.outputPath,
+    }));
+}
+
+function catalogPalette(styleName: string) {
+    const style = loadStyle(styleName);
+    return Object.fromEntries(
+        style.paletteSlots.map((slot) => [slot.name, { prompt: slot.prompt, css: slot.css }]),
+    );
 }
 
 describe('IlloAI CLI', () => {
@@ -261,5 +282,296 @@ describe('IlloAI CLI', () => {
         expect(stderr.chunks.join('')).toBe(
             'Error: Source "stock" is not implemented yet. Use --source render.\n',
         );
+    });
+
+    it('rejects --via when the source is render and does not switch to local-model', async () => {
+        const directory = tempDir('illoai-via-render-');
+        const renderHtml = mockRender();
+        const runLocalModel = mockRunLocalModel();
+        const lookupCommand = vi.fn(() => '/fake/grok');
+
+        const flagged = captureOutput();
+        const flaggedErr = captureOutput();
+        const flaggedCode = await runCli(
+            ['node', 'illoai', 'gen', 'A figure', '--via', 'grok', '--source', 'render'],
+            {
+                cwd: directory,
+                configPath: join(directory, 'unused-config.json'),
+                renderHtml,
+                runLocalModel,
+                lookupCommand,
+                stdout: flagged,
+                stderr: flaggedErr,
+            },
+        );
+        expect(flaggedCode).toBe(1);
+        expect(renderHtml).not.toHaveBeenCalled();
+        expect(runLocalModel).not.toHaveBeenCalled();
+        expect(flaggedErr.chunks.join('')).toContain('--via');
+        expect(flaggedErr.chunks.join('')).toMatch(/local-model/);
+
+        const implicit = captureOutput();
+        const implicitErr = captureOutput();
+        const implicitCode = await runCli(['node', 'illoai', 'gen', 'A figure', '--via', 'grok'], {
+            cwd: directory,
+            configPath: join(directory, 'unused-config.json'),
+            renderHtml,
+            runLocalModel,
+            lookupCommand,
+            stdout: implicit,
+            stderr: implicitErr,
+        });
+        expect(implicitCode).toBe(1);
+        expect(renderHtml).not.toHaveBeenCalled();
+        expect(runLocalModel).not.toHaveBeenCalled();
+        expect(implicitErr.chunks.join('')).toContain('--via');
+        expect(implicitErr.chunks.join('')).toMatch(/local-model/);
+    });
+
+    it('requires a workspace for local-model and does not create one', async () => {
+        const cwd = tempDir('illoai-local-missing-ws-');
+        const runLocalModel = mockRunLocalModel();
+        const stdout = captureOutput();
+        const stderr = captureOutput();
+        const exitCode = await runCli(
+            ['node', 'illoai', 'gen', 'A figure on a shore', '--source', 'local-model'],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                runLocalModel,
+                lookupCommand: () => '/fake/codex',
+                stdout,
+                stderr,
+            },
+        );
+
+        expect(exitCode).toBe(1);
+        expect(stderr.chunks.join('')).toBe(
+            'Error: No IlloAI workspace found. Run illoai new <name> first.\n',
+        );
+        expect(runLocalModel).not.toHaveBeenCalled();
+        expect(existsSync(join(cwd, '.illoai'))).toBe(false);
+        expect(readdirSync(cwd)).toEqual([]);
+    });
+
+    it('runs gen through local-model with an injected runner', async () => {
+        const cwd = tempDir('illoai-local-happy-');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+
+        const renderHtml = mockRender();
+        const runLocalModel = mockRunLocalModel();
+        const stdout = captureOutput();
+        const stderr = captureOutput();
+        const now = new Date('2026-08-23T00:00:00.000Z');
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'A figure on a shore',
+                '--source',
+                'local-model',
+                '--via',
+                'codex',
+                '--preset',
+                '3:2',
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                renderHtml,
+                runLocalModel,
+                lookupCommand: (name) => (name === 'codex' ? '/fake/codex' : undefined),
+                stdout,
+                stderr,
+                now: () => now,
+            },
+        );
+
+        const outputPath = join(cwd, '.illoai', 'out', 'illoai-2026-08-23T00-00-00.000Z.png');
+        const printed = stdout.chunks.join('');
+        expect(exitCode).toBe(0);
+        expect(stderr.chunks).toEqual([]);
+        expect(printed).toContain(`Created ${outputPath}`);
+        expect(printed).toContain('Backend: codex');
+        expect(printed).toContain('Canvas: 1536x1024');
+        expect(printed).not.toContain('at 1x');
+        expect(printed).toContain(
+            'Privacy: local-model used your own CLI. We did not handle the data.',
+        );
+        expect(renderHtml).not.toHaveBeenCalled();
+        expect(runLocalModel).toHaveBeenCalledOnce();
+        expect(runLocalModel.mock.calls[0]?.[0]).toMatchObject({
+            provider: 'codex',
+            commandPath: '/fake/codex',
+            outputPath,
+        });
+
+        const historyPath = join(cwd, '.illoai', 'history.jsonl');
+        const historyText = readFileSync(historyPath, 'utf8');
+        const historyLines = historyText.trimEnd().split('\n');
+        expect(historyLines).toHaveLength(1);
+        const palette = catalogPalette('memory_color_blocks');
+        expect(JSON.parse(historyLines[0] ?? '{}')).toEqual({
+            createdAt: '2026-08-23T00:00:00.000Z',
+            style: 'memory_color_blocks',
+            palette,
+            catalogPalette: palette,
+            text: 'A figure on a shore',
+            source: 'local-model',
+            via: 'codex',
+            output: join('out', 'illoai-2026-08-23T00-00-00.000Z.png'),
+        });
+        expect(historyText).not.toContain(cwd);
+    });
+
+    it('prints named --ref paths before calling runLocalModel', async () => {
+        const cwd = tempDir('illoai-local-refs-');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+        const abs1 = resolve(cwd, 'a.png');
+        const abs2 = resolve(cwd, 'b.jpg');
+        writeFileSync(abs1, 'png', 'utf8');
+        writeFileSync(abs2, 'jpg', 'utf8');
+
+        const stdout = captureOutput();
+        const runLocalModel = vi.fn(async (input: { outputPath: string }) => {
+            expect(stdout.chunks.join('')).toContain(
+                ['References sent to codex:', `  ${abs1}`, `  ${abs2}`].join('\n'),
+            );
+            return { outputPath: input.outputPath };
+        });
+
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'A figure on a shore',
+                '--source',
+                'local-model',
+                '--via',
+                'codex',
+                '--ref',
+                abs1,
+                '--ref',
+                abs2,
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                runLocalModel,
+                lookupCommand: () => '/fake/codex',
+                stdout,
+                now: () => new Date('2026-08-23T00:00:00.000Z'),
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        expect(runLocalModel).toHaveBeenCalledOnce();
+    });
+
+    it('prints a relationship hint for extreme_minimal_abstraction', async () => {
+        const cwd = tempDir('illoai-local-hint-');
+        await runCli(['node', 'illoai', 'new', 'demo', '--style', 'extreme_minimal_abstraction'], {
+            cwd,
+            stdout: captureOutput(),
+        });
+        const stdout = captureOutput();
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'A figure on a shore',
+                '--source',
+                'local-model',
+                '--via',
+                'codex',
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                runLocalModel: mockRunLocalModel(),
+                lookupCommand: () => '/fake/codex',
+                stdout,
+                now: () => new Date('2026-08-23T00:00:00.000Z'),
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        // This style fills a relationship, not a subject. Implementers should print this sentence.
+        expect(stdout.chunks.join('')).toContain('This style fills a relationship, not a subject.');
+    });
+
+    it('allows --via when config source is already local-model', async () => {
+        const cwd = tempDir('illoai-local-config-via-');
+        const configPath = join(cwd, 'config.json');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+        setConfigValue('source', 'local-model', configPath);
+
+        const renderHtml = mockRender();
+        const runLocalModel = mockRunLocalModel();
+        const stdout = captureOutput();
+        const stderr = captureOutput();
+        const exitCode = await runCli(
+            ['node', 'illoai', 'gen', 'A figure on a shore', '--via', 'grok'],
+            {
+                cwd,
+                configPath,
+                renderHtml,
+                runLocalModel,
+                lookupCommand: (name) => (name === 'grok' ? '/fake/grok' : undefined),
+                stdout,
+                stderr,
+                now: () => new Date('2026-08-23T00:00:00.000Z'),
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        expect(stderr.chunks).toEqual([]);
+        expect(renderHtml).not.toHaveBeenCalled();
+        expect(runLocalModel).toHaveBeenCalledOnce();
+        expect(runLocalModel.mock.calls[0]?.[0]).toMatchObject({
+            provider: 'grok',
+            commandPath: '/fake/grok',
+        });
+        expect(stdout.chunks.join('')).toContain('Backend: grok');
+    });
+
+    it('does not fall back from an explicit missing --via grok to codex', async () => {
+        const cwd = tempDir('illoai-local-via-missing-');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+        const runLocalModel = mockRunLocalModel();
+        const stdout = captureOutput();
+        const stderr = captureOutput();
+        const lookupCommand = vi.fn((name: string) =>
+            name === 'codex' ? '/fake/codex' : undefined,
+        );
+
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'A figure on a shore',
+                '--source',
+                'local-model',
+                '--via',
+                'grok',
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                runLocalModel,
+                lookupCommand,
+                stdout,
+                stderr,
+            },
+        );
+
+        expect(exitCode).toBe(1);
+        expect(runLocalModel).not.toHaveBeenCalled();
+        expect(stderr.chunks.join('')).toContain('grok');
+        expect(stderr.chunks.join('')).not.toMatch(/falling back|using codex/i);
     });
 });

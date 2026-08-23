@@ -228,6 +228,51 @@ describe('history paths', () => {
         expect(raw).not.toContain(cwd);
     });
 
+    it('round-trips optional source, via, and catalogPalette when present', () => {
+        const cwd = tempDir('illoai-history-optional-');
+        const workspaceDir = createWorkspace(cwd, { name: 'demo' }).path;
+        const palette = { paper: { prompt: '纯白', css: '#ffffff' } };
+        const record = {
+            createdAt: '2026-08-23T00:00:00.000Z',
+            style: 'memory_color_blocks',
+            palette,
+            catalogPalette: {
+                paper: { prompt: '纯白', css: '#ffffff' },
+                landscape: { prompt: '浅蓝、雾蓝、蓝灰、灰青绿、湖青、米白', css: '#8aa3b5' },
+            },
+            text: 'A figure on a shore',
+            output: join(workspaceDir, 'out', 'illoai.png'),
+            source: 'local-model' as const,
+            via: 'codex' as const,
+        };
+
+        appendHistory(workspaceDir, record);
+        expect(listHistory(workspaceDir)).toEqual([
+            {
+                ...record,
+                output: join('out', 'illoai.png'),
+            },
+        ]);
+    });
+
+    it('parses a render-shaped history record without source, via, or catalogPalette', () => {
+        const cwd = tempDir('illoai-history-render-shape-');
+        const workspaceDir = createWorkspace(cwd, { name: 'demo' }).path;
+        const record = {
+            createdAt: '2026-08-23T00:00:00.000Z',
+            style: 'memory_color_blocks',
+            palette: { paper: { prompt: '纯白', css: '#ffffff' } },
+            text: 'One visual family',
+            output: join('out', 'illoai.png'),
+        };
+        writeFileSync(join(workspaceDir, 'history.jsonl'), `${JSON.stringify(record)}\n`, 'utf8');
+
+        expect(listHistory(workspaceDir)).toEqual([record]);
+        expect(Object.keys(listHistory(workspaceDir)[0] ?? {}).sort()).toEqual(
+            ['createdAt', 'output', 'palette', 'style', 'text'].sort(),
+        );
+    });
+
     it('rejects a leftover string palette slot in history.jsonl', () => {
         const cwd = tempDir('illoai-history-string-');
         const created = createWorkspace(cwd, { name: 'demo' });

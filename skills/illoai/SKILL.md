@@ -40,7 +40,7 @@ Use the content role, not the presence of text, to choose a source.
 | Text is the information subject, or the wording will be edited repeatedly | `render` |
 | The picture is the subject, with at most a small amount of decorative text | `local-model` |
 
-The current release implements `render`. If the request needs `stock` or `local-model`, report that the source is not implemented yet. Do not silently substitute another source.
+The current release implements `render` and `local-model`. If the request needs `stock`, report that the source is not implemented yet. Do not silently substitute another source. If a requested local-model backend is missing, stop and name the CLI to install. Do not switch to render, stock, or a different CLI.
 
 ## Render a PNG
 
@@ -60,6 +60,23 @@ When a workspace exists, omit `--output` so the PNG lands in `.illoai/out/`. Use
 Available presets are `16:9`, `5:2`, `3:2`, and `3:4`. Use `--width`, `--height`, and `--scale` only when the requested output needs an explicit override.
 
 After the command finishes, verify that the PNG exists at the reported path. Tell the user that render content stayed on the machine.
+
+## Generate with a local model
+
+`local-model` needs a workspace. The style lives in `.illoai/project.json`. Do not create a workspace silently.
+
+Copy the selected style prompt in full, then append one subject description (`主体：...`). Do not assemble extra style, palette, or discipline layers.
+
+```bash
+illoai gen "<subject>" --source local-model --via codex --preset 3:2
+illoai gen "<subject>" --source local-model --via grok --ref /absolute/a.png
+```
+
+`--via` chooses `codex`, `grok`, or `claude`. It is only valid with `--source local-model`. `--ref` names files only. Do not glob. Do not pass a directory.
+
+`extreme_minimal_abstraction` fills a relationship, not a subject.
+
+After the command finishes, verify the image at the reported path. Tell the user: `Privacy: local-model used your own CLI. We did not handle the data.`
 
 ## Preserve the visual system
 

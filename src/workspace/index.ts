@@ -7,6 +7,12 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import {
+    IMAGE_SOURCES,
+    type ImageSource,
+    LOCAL_MODEL_PROVIDERS,
+    type LocalModelProvider,
+} from '../config.ts';
 import { loadFallbackStyle, loadStyle } from '../styles/loader.ts';
 import {
     type CanvasStrategy,
@@ -37,6 +43,9 @@ export interface HistoryRecord {
     palette: Record<string, PaletteSlotValue>;
     text: string;
     output: string;
+    source?: ImageSource;
+    via?: LocalModelProvider;
+    catalogPalette?: Record<string, PaletteSlotValue>;
 }
 
 export interface CreateWorkspaceOptions {
@@ -323,13 +332,48 @@ function parseHistoryRecord(filePath: string, lineNumber: number, raw: string): 
     for (const [key, value] of Object.entries(parsed.palette)) {
         palette[key] = parseHistoryPaletteSlot(filePath, lineNumber, key, value);
     }
-    return {
+    const record: HistoryRecord = {
         createdAt: parsed.createdAt as string,
         style: parsed.style as string,
         palette,
         text: parsed.text as string,
         output: parsed.output as string,
     };
+    if (parsed.source !== undefined) {
+        if (
+            typeof parsed.source !== 'string' ||
+            !IMAGE_SOURCES.includes(parsed.source as ImageSource)
+        ) {
+            throw new Error(
+                `${filePath}:${lineNumber} has invalid "source". Expected one of ${IMAGE_SOURCES.join(', ')}.`,
+            );
+        }
+        record.source = parsed.source as ImageSource;
+    }
+    if (parsed.via !== undefined) {
+        if (
+            typeof parsed.via !== 'string' ||
+            !LOCAL_MODEL_PROVIDERS.includes(parsed.via as LocalModelProvider)
+        ) {
+            throw new Error(
+                `${filePath}:${lineNumber} has invalid "via". Expected one of ${LOCAL_MODEL_PROVIDERS.join(', ')}.`,
+            );
+        }
+        record.via = parsed.via as LocalModelProvider;
+    }
+    if (parsed.catalogPalette !== undefined) {
+        if (!isPlainObject(parsed.catalogPalette)) {
+            throw new Error(
+                `${filePath}:${lineNumber} has invalid "catalogPalette". Expected an object.`,
+            );
+        }
+        const catalogPalette: Record<string, PaletteSlotValue> = {};
+        for (const [key, value] of Object.entries(parsed.catalogPalette)) {
+            catalogPalette[key] = parseHistoryPaletteSlot(filePath, lineNumber, key, value);
+        }
+        record.catalogPalette = catalogPalette;
+    }
+    return record;
 }
 
 export function listHistory(workspaceDir: string): HistoryRecord[] {

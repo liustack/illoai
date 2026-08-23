@@ -36,6 +36,7 @@ export interface ConfigFlags {
     width?: number;
     height?: number;
     scale?: number;
+    via?: LocalModelProvider;
 }
 
 export interface EffectiveConfig {

@@ -21,10 +21,11 @@ IlloAI is built around project-level visual memory. One style, one palette, and 
 - Ten self-contained catalog styles, listed with `illoai styles`
 - A project workspace at `.illoai/` for style, palette, output, and history
 - Layered config with private 0600 storage and redacted display
-- Offline diagnostics for Node.js, Chromium, and config permissions
+- Local-model generation through the user's own Codex, Grok, or Claude CLI
+- Offline diagnostics for Node.js, Chromium, config permissions, and local CLIs
 - Agent skill and DeepSeek Harness distribution skeletons
 
-`stock` and `local-model` are registered command surfaces. They return clear not-implemented errors until those domains land.
+`stock` is a registered command surface. It returns a clear not-implemented error until that domain lands. A missing local-model CLI is reported by name. IlloAI does not silently switch sources.
 
 ## Quick start
 
@@ -35,9 +36,10 @@ pnpm build
 node dist/main.js styles
 node dist/main.js new demo --style memory_color_blocks
 node dist/main.js gen "Every image should feel like it belongs to the same story"
+node dist/main.js gen "A figure on a shore" --source local-model --via codex --preset 3:2
 ```
 
-With a workspace, PNG files land in `.illoai/out/`. Without one, the default output is `illoai.png`. Render content stays on the machine.
+With a workspace, PNG files land in `.illoai/out/`. Without one, the default output is `illoai.png`. Render content stays on the machine. `local-model` uses the user's own CLI. IlloAI does not handle that data.
 
 Choose a production size or override it directly:
 
@@ -74,7 +76,7 @@ illoai config show
 illoai doctor
 ```
 
-Doctor performs no network calls. It checks the active Node.js version, the local Playwright Chromium executable, and config file permissions.
+Doctor performs no network calls. It checks the active Node.js version, the local Playwright Chromium executable, config file permissions, and whether `codex`, `grok`, and `claude` are on PATH. Missing local CLIs are warnings. They do not make the install unhealthy.
 
 ## The style contract
 
@@ -90,7 +92,7 @@ A project workspace lives at `.illoai/`. `project.json` is the visual system and
 | :-- | :-- |
 | `render` | Fully local |
 | `stock` | Planned. Only search keywords leave the machine |
-| `local-model` | Planned. Uses the user's own local CLI and subscription |
+| `local-model` | Uses the user's own local CLI and subscription. IlloAI does not handle the data |
 
 ## Development
 

@@ -11,6 +11,8 @@ import {
     IMAGE_SOURCES,
     type ImageSource,
     initConfigFile,
+    LOCAL_MODEL_PROVIDERS,
+    type LocalModelProvider,
     loadConfigFile,
     renderConfigShow,
     resolveEffectiveConfig,
@@ -21,7 +23,13 @@ import {
     type DimensionPresetName,
     getDimensionPreset,
 } from './dimensions.ts';
-import { type DoctorReport, renderDoctorReport, runDoctor } from './doctor.ts';
+import { type DoctorReport, lookupCommandOnPath, renderDoctorReport, runDoctor } from './doctor.ts';
+import {
+    buildEnvelopePrompt,
+    runLocalModel as defaultRunLocalModel,
+    resolveNamedRefFiles,
+    selectLocalModelProvider,
+} from './local-model/index.ts';
 import { type RenderHtmlOptions, type RenderHtmlResult, renderHtml } from './render/index.ts';
 import { createRenderTemplate } from './render/template.ts';
 import { listStyles, loadStyle } from './styles/loader.ts';
@@ -52,6 +60,8 @@ export interface CliRuntime {
     doctor: () => DoctorReport;
     now: () => Date;
     setExitCode: (code: number) => void;
+    lookupCommand: (name: string) => string | undefined;
+    runLocalModel: typeof defaultRunLocalModel;
 }
 
 export type CliRuntimeOverrides = Partial<CliRuntime>;
@@ -64,9 +74,17 @@ function createRuntime(overrides: CliRuntimeOverrides = {}): CliRuntime {
         cwd: overrides.cwd ?? process.cwd(),
         configPath,
         renderHtml: overrides.renderHtml ?? renderHtml,
-        doctor: overrides.doctor ?? (() => runDoctor({ configPath })),
+        doctor:
+            overrides.doctor ??
+            (() =>
+                runDoctor({
+                    configPath,
+                    lookupCommand: overrides.lookupCommand ?? lookupCommandOnPath,
+                })),
         now: overrides.now ?? (() => new Date()),
         setExitCode: overrides.setExitCode ?? (() => undefined),
+        lookupCommand: overrides.lookupCommand ?? lookupCommandOnPath,
+        runLocalModel: overrides.runLocalModel ?? defaultRunLocalModel,
     };
 }
 
@@ -75,6 +93,17 @@ function parseImageSource(value: string): ImageSource {
         throw new Error(`Unknown source "${value}". Use ${IMAGE_SOURCES.join(', ')}.`);
     }
     return value as ImageSource;
+}
+
+function parseVia(value: string): LocalModelProvider {
+    if (!LOCAL_MODEL_PROVIDERS.includes(value as LocalModelProvider)) {
+        throw new Error(`Unknown via "${value}". Use ${LOCAL_MODEL_PROVIDERS.join(', ')}.`);
+    }
+    return value as LocalModelProvider;
+}
+
+function collectRefs(value: string, previous: string[]): string[] {
+    return [...previous, value];
 }
 
 function parsePreset(value: string): DimensionPresetName {
@@ -98,7 +127,15 @@ function parseScaleOption(value: string): number {
     return parsed;
 }
 
-function flagsFromOptions(options: Record<string, string | undefined>): ConfigFlags {
+function flagsFromOptions(options: {
+    source?: string;
+    output?: string;
+    preset?: string;
+    width?: string;
+    height?: string;
+    scale?: string;
+    via?: string;
+}): ConfigFlags {
     return {
         ...(options.source ? { source: parseImageSource(options.source) } : {}),
         ...(options.output ? { output: options.output } : {}),
@@ -106,6 +143,7 @@ function flagsFromOptions(options: Record<string, string | undefined>): ConfigFl
         ...(options.width ? { width: parseIntegerOption('--width', options.width) } : {}),
         ...(options.height ? { height: parseIntegerOption('--height', options.height) } : {}),
         ...(options.scale ? { scale: parseScaleOption(options.scale) } : {}),
+        ...(options.via ? { via: parseVia(options.via) } : {}),
     };
 }
 
@@ -165,52 +203,150 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
         .option('--width <pixels>', 'Override canvas width')
         .option('--height <pixels>', 'Override canvas height')
         .option('--scale <factor>', 'Device scale factor from 1 to 4')
-        .action(async (text: string, options: Record<string, string | undefined>) => {
-            const flags = flagsFromOptions(options);
-            const effective = resolveEffectiveConfig(loadConfigFile(runtime.configPath), flags);
-            if (effective.source !== 'render') {
-                throw new Error(
-                    `Source "${effective.source}" is not implemented yet. Use --source render.`,
-                );
-            }
+        .option('--via <provider>', 'Local model CLI: codex, grok, or claude')
+        .option('--ref <path>', 'Named reference image (repeatable)', collectRefs, [])
+        .action(
+            async (
+                text: string,
+                options: {
+                    source?: string;
+                    output?: string;
+                    preset?: string;
+                    width?: string;
+                    height?: string;
+                    scale?: string;
+                    via?: string;
+                    ref?: string[];
+                },
+            ) => {
+                const flags = flagsFromOptions(options);
+                const effective = resolveEffectiveConfig(loadConfigFile(runtime.configPath), flags);
 
-            const workspaceDir = findWorkspace(runtime.cwd);
-            const pack = workspaceDir ? loadStylePack(workspaceDir) : undefined;
-            const palette = pack ? mergedPalette(pack) : undefined;
-            const now = runtime.now();
-            const outputPath = flags.output
-                ? flags.output
-                : workspaceDir
-                  ? defaultWorkspaceOutputPath(workspaceDir, now)
-                  : effective.output;
+                if (flags.via !== undefined && effective.source !== 'local-model') {
+                    throw new Error('--via is only valid with --source local-model.');
+                }
 
-            const result = await runtime.renderHtml({
-                html: createRenderTemplate(text, palette ? { palette } : {}),
-                outputPath,
-                width: effective.render.width,
-                height: effective.render.height,
-                scale: effective.render.scale,
-            });
+                if (effective.source === 'stock') {
+                    throw new Error('Source "stock" is not implemented yet. Use --source render.');
+                }
 
-            if (workspaceDir && pack) {
-                appendHistory(workspaceDir, {
-                    createdAt: now.toISOString(),
-                    style: pack.style,
-                    palette: palette ?? {},
-                    text,
-                    output: result.pngPath,
+                if (effective.source === 'local-model') {
+                    const workspaceDir = findWorkspace(runtime.cwd);
+                    if (workspaceDir === undefined) {
+                        throw new Error('No IlloAI workspace found. Run illoai new <name> first.');
+                    }
+
+                    const pack = loadStylePack(workspaceDir);
+                    const style = loadStyle(pack.style);
+                    const palette = mergedPalette(pack);
+                    const catalogPalette = Object.fromEntries(
+                        style.paletteSlots.map((slot) => [
+                            slot.name,
+                            { prompt: slot.prompt, css: slot.css },
+                        ]),
+                    );
+                    const selected = selectLocalModelProvider({
+                        via: flags.via,
+                        configVia: effective.localModel?.via,
+                        lookup: runtime.lookupCommand,
+                    });
+                    const refs = resolveNamedRefFiles(options.ref ?? [], runtime.cwd);
+                    if (refs.length > 0) {
+                        runtime.stdout.write(
+                            `References sent to ${selected.provider}:\n${refs
+                                .map((path) => `  ${path}`)
+                                .join('\n')}\n`,
+                        );
+                    }
+
+                    const now = runtime.now();
+                    const outputPath = resolve(
+                        runtime.cwd,
+                        flags.output ?? defaultWorkspaceOutputPath(workspaceDir, now),
+                    );
+                    const prompt = buildEnvelopePrompt({
+                        style,
+                        subject: text,
+                        mergedPalette: palette,
+                        outputPath,
+                        width: effective.render.width,
+                        height: effective.render.height,
+                        provider: selected.provider,
+                        referencePaths: refs,
+                    });
+                    const result = await runtime.runLocalModel({
+                        provider: selected.provider,
+                        commandPath: selected.commandPath,
+                        prompt,
+                        referencePaths: refs,
+                        outputPath,
+                    });
+
+                    appendHistory(workspaceDir, {
+                        createdAt: now.toISOString(),
+                        style: pack.style,
+                        palette,
+                        catalogPalette,
+                        text,
+                        source: 'local-model',
+                        via: selected.provider,
+                        output: result.outputPath,
+                    });
+
+                    const lines = [
+                        `Created ${result.outputPath}`,
+                        `Backend: ${selected.provider}`,
+                        `Canvas: ${effective.render.width}x${effective.render.height}`,
+                    ];
+                    if (style.name === 'extreme_minimal_abstraction') {
+                        lines.push('This style fills a relationship, not a subject.');
+                    }
+                    lines.push(
+                        'Privacy: local-model used your own CLI. We did not handle the data.',
+                        '',
+                    );
+                    runtime.stdout.write(lines.join('\n'));
+                    return;
+                }
+
+                const workspaceDir = findWorkspace(runtime.cwd);
+                const pack = workspaceDir ? loadStylePack(workspaceDir) : undefined;
+                const palette = pack ? mergedPalette(pack) : undefined;
+                const now = runtime.now();
+                const outputPath = flags.output
+                    ? flags.output
+                    : workspaceDir
+                      ? defaultWorkspaceOutputPath(workspaceDir, now)
+                      : effective.output;
+
+                const result = await runtime.renderHtml({
+                    html: createRenderTemplate(text, palette ? { palette } : {}),
+                    outputPath,
+                    width: effective.render.width,
+                    height: effective.render.height,
+                    scale: effective.render.scale,
                 });
-            }
 
-            runtime.stdout.write(
-                [
-                    `Created ${result.pngPath}`,
-                    `Canvas: ${result.meta.width}x${result.meta.height} at ${result.meta.scale}x`,
-                    'Privacy: render stayed on this machine.',
-                    '',
-                ].join('\n'),
-            );
-        });
+                if (workspaceDir && pack) {
+                    appendHistory(workspaceDir, {
+                        createdAt: now.toISOString(),
+                        style: pack.style,
+                        palette: palette ?? {},
+                        text,
+                        output: result.pngPath,
+                    });
+                }
+
+                runtime.stdout.write(
+                    [
+                        `Created ${result.pngPath}`,
+                        `Canvas: ${result.meta.width}x${result.meta.height} at ${result.meta.scale}x`,
+                        'Privacy: render stayed on this machine.',
+                        '',
+                    ].join('\n'),
+                );
+            },
+        );
 
     program
         .command('new')
