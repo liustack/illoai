@@ -89,19 +89,21 @@ describe('built-in style catalog', () => {
     });
 
     it('uses paper-border and full-bleed exactly where the source specifies them', () => {
+        // 纸感五式来自 artwork 原文。另外五式原文未写，2026-08-23 十式各出一张样图人审后定案：
+        // luminous_impasto 与 monet 判对，torn_paper 与 risograph 判错，实测都是铺满不留纸边。
         const paper = [
             'minimal_watercolor',
             'freehand_doodle',
             'memory_color_blocks',
             'single_line_sketch',
             'extreme_minimal_abstraction',
-            'torn_paper_editorial_collage',
-            'risograph_editorial',
         ];
         const fullBleed = [
             'conceptual_colorfield',
             'luminous_impasto',
             'monet_editorial_impressionism',
+            'torn_paper_editorial_collage',
+            'risograph_editorial',
         ];
 
         for (const name of paper) {
@@ -110,6 +112,6 @@ describe('built-in style catalog', () => {
         for (const name of fullBleed) {
             expect(loadStyle(name).canvas.strategy, name).toBe('full-bleed');
         }
-        expect(loadStyle('risograph_editorial').canvas.guidance).toContain('存疑');
+        expect(paper.length + fullBleed.length).toBe(10);
     });
 });

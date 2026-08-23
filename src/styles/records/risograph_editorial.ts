@@ -40,8 +40,8 @@ export const risographEditorial = {
         },
     ],
     canvas: {
-        strategy: 'paper-border',
-        guidance: '原文未写是否留出纸边，暂按 paper-border，存疑。',
+        strategy: 'full-bleed',
+        guidance: '2026-08-23 实测定案：孔版色块出血到画面边缘，不留纸边。',
     },
     tier: 'accent',
     isFallback: false,

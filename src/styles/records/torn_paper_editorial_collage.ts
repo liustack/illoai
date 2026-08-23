@@ -29,8 +29,9 @@ export const tornPaperEditorialCollage = {
         { name: 'accent', role: '强调色', prompt: '橙色或赭色', css: '#c46a38' },
     ],
     canvas: {
-        strategy: 'paper-border',
-        guidance: '构图简洁，留白充足，不要把画面塞满。',
+        strategy: 'full-bleed',
+        guidance:
+            '2026-08-23 实测定案：拼贴纸片铺满整幅，不留纸边。构图仍要简洁，靠色块本身的留白呼吸，不靠画面外的白边。',
     },
     tier: 'accent',
     isFallback: false,
