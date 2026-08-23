@@ -2,8 +2,9 @@
 
 declare const __APP_VERSION__: string;
 
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Command, CommanderError } from 'commander';
 import {
     CONFIG_PATH,
@@ -500,7 +501,11 @@ export async function runCli(
     return exitCode;
 }
 
-const entryPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
-if (entryPath === import.meta.url) {
+// npm 装完 bin 是符号链接，argv[1] 是链接路径而 import.meta.url 是解析后的真实路径，
+// 直接比对会判定自己不是入口，于是 CLI 加载了却不执行。两边都取真实路径再比。
+const entryPath = process.argv[1]
+    ? pathToFileURL(realpathSync(resolve(process.argv[1]))).href
+    : undefined;
+if (entryPath === pathToFileURL(realpathSync(fileURLToPath(import.meta.url))).href) {
     process.exitCode = await runCli();
 }

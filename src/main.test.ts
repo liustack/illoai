@@ -693,3 +693,14 @@ describe('IlloAI CLI', () => {
         expect(stderr.chunks.join('')).not.toMatch(/falling back|using codex/i);
     });
 });
+
+describe('bin entry', () => {
+    it('runs when invoked through a symlinked bin, not only by its real path', () => {
+        // npm 装完 bin 是符号链接，argv[1] 是链接路径而 import.meta.url 是真实路径。
+        // 只比对未解析的路径会让 CLI 加载却不执行，这个回归发布前一刻才被抓到。
+        const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+        const guard = source.slice(source.lastIndexOf('const entryPath'));
+        expect(guard).toContain('realpathSync');
+        expect(guard.match(/realpathSync/g)).toHaveLength(2);
+    });
+});
