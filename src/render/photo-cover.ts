@@ -141,6 +141,9 @@ export function createPhotoCoverTemplate(text: string, options: PhotoCoverOption
             line-height: 0.98;
             text-wrap: balance;
             white-space: pre-wrap;
+            /* 中文只在标点和空格处换行，整句没有标点时才退回逐字断开。 */
+            word-break: keep-all;
+            overflow-wrap: anywhere;
             text-shadow: 0 2px 12px color-mix(in srgb, var(--illo-ink) 55%, transparent);
         }
 
