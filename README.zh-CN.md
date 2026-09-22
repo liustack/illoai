@@ -1,107 +1,112 @@
-# IlloAI
+<p align="center"><img src="assets/banner.zh-CN.jpg" alt="同一篇文章的三张封面：16:9 站内封面、5:2 横幅和 3:4 竖版，底图是同一张 CC0 城市夜景" width="100%"></p>
 
-**一篇内容，一套视觉语言。**
+<h1 align="center">IlloAI</h1>
 
-IlloAI 是面向 AI 内容创作者的本地优先配图生产线。它把整篇文章、整套演示、整个产品或整场活动当作一个风格单元，让封面、正文插图、社交平台变体和过渡图属于同一个视觉体系，不再像临时拼成的一组散图。
+<p align="center"><b>文章写完，封面顺手就有</b></p>
 
-[English](README.md)
+<p align="center">
+  <a href="https://liustack.dev/tools/illoai">liustack.dev</a> ·
+  <a href="./README.md">English</a> ·
+  <a href="./skills/illoai/SKILL.md">Agent skill</a>
+</p>
 
-## 为什么是 IlloAI
+<p align="center">
+  <a href="https://x.com/liustack"><img src="https://img.shields.io/badge/follow-%40liustack-black?style=flat-square&logo=x&logoColor=white" alt="Follow @liustack on X"></a>
+  <a href="https://www.npmjs.com/package/@liustack/illoai"><img src="https://img.shields.io/npm/v/@liustack/illoai?style=flat-square&label=npm&color=cb3837" alt="npm"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/@liustack/illoai?style=flat-square" alt="Node.js"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/no%20API%20key-needed-4c1?style=flat-square" alt="No API key needed">
+</p>
 
-生成一张好图已经不难。真正难的是连续生成十二张图后，它们仍然像同一个视觉系统里的作品。
-
-IlloAI 围绕项目级视觉记忆设计。一套风格、一套配色和一种构图纪律贯穿所有图位与比例。一期先落地可复现的 HTML 渲染档，适合文字是信息主体，或文案需要反复修改的封面卡片和信息图。
-
-## 当前可用能力
-
-- Playwright Chromium 本地 HTML 转 PNG
-- 原创的内置文字卡片模板
-- `--width`、`--height`、`--scale` 精确控制
-- 四个生产尺寸预设：`16:9`、`5:2`、`3:2`、`3:4`
-- 十式自包含风格库，可用 `illoai styles` 列出
-- 项目工作区 `.illoai/`，保存选定式、配色、产物和历史
-- 分层配置、0600 私密存储和脱敏展示
-- 通过用户本机的 Codex、Grok 或 Claude CLI 生图
-- Node.js、Chromium、配置权限与本机 CLI 的离线诊断
-- Agent skill 与 DeepSeek Harness 分发骨架
-
-`stock` 已注册命令入口，对应业务尚未实现。调用时会返回明确错误。本机 CLI 没装时会点名要装什么，不会静默换路。
-
-## 快速开始
+## 安装
 
 ```bash
-pnpm install
-pnpm exec playwright install chromium
-pnpm build
-node dist/main.js styles
-node dist/main.js new demo --style memory_color_blocks
-node dist/main.js gen "让整篇文章的每张图都属于同一个视觉体系"
-node dist/main.js gen "一只背对的人站在湖边" --source local-model --via codex --preset 3:2
+npx -y skills add liustack/illoai -g
 ```
 
-有工作区时，PNG 写到 `.illoai/out/`。没有工作区时，默认输出为 `illoai.png`。render 档全程留在本机。`local-model` 走用户自己的 CLI，我们不经手数据。
+装进 Claude Code、Codex，或任何读 skill 文件夹的 agent。装好后跟它说「给这篇文章做个封面」。
 
-可以选择生产尺寸，也可以直接覆盖画布参数：
+## 交流
+
+欢迎随时提 [issue](https://github.com/liustack/illoai/issues/new)。也欢迎在 X 关注 **[@liustack](https://x.com/liustack)**，晒晒你做的封面，说说下一版最该解决什么。新版本会第一时间在那里发。
+
+## 亮点
+
+**🖼️ 一句话出封面。** agent 先搜一张能免费商用的照片，再把这篇文章的标题和配色压上去，在你电脑上渲染成 PNG。
+
+**🆓 不花钱，不用 key。** 默认走 Openverse，只收 CC0 和公有领域的照片，拿来就能用，也不用署名。配了 Pexels key 就优先用 Pexels。
+
+**📐 一篇文章一套尺寸。** 16:9 站内封面、3:4 小红书竖版、5:2 公众号和 X 横幅，配色和字都跟着同一个项目走。
+
+**🔒 稿子不出电脑。** 渲染在本机 Chromium 里完成，联网的只有搜图和下载照片。
+
+**🎨 有模型 CLI 还能出插图。** 装了 Codex、Grok 或 Claude CLI，就能用十种画风画正文插图，花的是你自己的订阅。
+
+## 命令
+
+agent 会替你跑这些命令。想自己动手也行：
 
 ```bash
-node dist/main.js gen "一张可以稳定重渲染的发布卡片" --preset 5:2 --output launch.png
-node dist/main.js gen "自定义画布" --width 1200 --height 630 --scale 2 --output card.png
+npm i -g @liustack/illoai
+npx playwright install chromium
+
+illoai new my-post
+illoai stock search "harbour night" --orientation landscape
+illoai gen "人接不住认知以外的流量，也赚不到认知以外的钱" --source stock --photo openverse:<id> --preset 16:9
 ```
 
-## 尺寸系统
+`stock search` 每行列一张照片：ref、尺寸、授权、作者、缩略图地址。挑一张，把 ref 交给 `--photo`。`--photo` 也收本地图片路径。
 
-| 预设 | 像素 | 主要用途 |
+有工作区时，照片和它的来源记录存进 `.illoai/refs/`，封面写到 `.illoai/out/`。`project.json` 记着这个项目的风格和配色，`history.jsonl` 记着每一张图，两个文件都可以提交。
+
+不要照片的话，`--source render` 出纯文字卡片。装了模型 CLI 的话，`--source local-model --via codex` 按项目风格画插图，`illoai styles` 列出十种画风。
+
+## 尺寸
+
+| 预设 | 像素 | 用在哪 |
 | :-- | :-- | :-- |
-| `16:9` | 1600×900 | 文章封面 |
-| `5:2` | 1600×640 | X 封面、公众号封面、文内过渡条 |
-| `3:2` | 1536×1024 | 正文插图，原生比例零裁切 |
-| `3:4` | 1242×1656 | 竖版社交平台封面 |
+| `16:9` | 1600×900 | 站内文章封面 |
+| `5:2` | 1600×640 | 公众号封面、X 横幅、文内过渡条 |
+| `3:2` | 1536×1024 | 正文插图 |
+| `3:4` | 1242×1656 | 小红书等竖版封面 |
 
-## 分层配置
+尺寸不够用时，`--width`、`--height`、`--scale` 可以直接指定画布。
 
-配置优先级依次为命令 flags、`~/.illoai/config.json`、内置默认值。
+## 配置
 
 ```bash
-illoai config init
-illoai config set render.preset 3:2
-illoai config set render.scale 2
+illoai config set stock.pexels.apiKey <key>
+illoai config set render.preset 3:4
 illoai config show
 ```
 
-`config init` 与后续每次写入都会把配置文件保持为 0600。`config show` 会遮蔽密钥与 URL 凭据。配置损坏或字段类型错误时会在文件边界直接报错，不会用隐藏默认值掩盖问题。
+配置存在 `~/.illoai/config.json`，文件权限 0600，`config show` 会把所有 key 遮住。Openverse 的 `stock.openverse.clientId` 和 `clientSecret` 可以不填，填了只是提高限额。
 
-## 本地诊断
+## 网络与隐私
+
+| 图源 | 什么会离开你的电脑 |
+| :-- | :-- |
+| `stock` | 搜索词，以及下载所选照片的请求 |
+| `render` | 什么都不出去 |
+| `local-model` | 走你自己的 CLI 和订阅，我们不经手 |
+
+照片下载直连图片服务器，只认 https，内网地址一律拦下，单张上限 40MB。只靠 `HTTPS_PROXY` 设的代理用不上，接管 DNS 的代理（fake-ip 模式）可以正常下载。
+
+## 诊断
 
 ```bash
 illoai doctor
 ```
 
-doctor 不发起网络请求。它检查当前 Node.js 版本、本机 Playwright Chromium 可执行文件、配置文件权限，以及 PATH 上有没有 `codex`、`grok`、`claude`。本机 CLI 没装记为警告，不会因此判成不健康。
-
-## 风格契约
-
-每种风格都是一条自包含记录，包括式名、适用场景、提示词全文、避免清单、配色占位槽、画布策略和目录元数据。模型提示词只遵守一条机械规则：完整照抄所选风格提示词，再接一段主体描述。
-
-项目中不存在全局 prompt 组装器。风格层、配色层和纪律层对不同介质的影响并不相同，因此每一式独立拥有完整语言，即使存在文字冗余也不拆层。
-
-工作区在 `.illoai/`。`project.json` 是项目视觉体系，`history.jsonl` 是出图记录，两份都进版本库。`.illoai/.gitignore` 忽略 `out/`、`cache/` 和 `refs/`。IlloAI 不会改用户仓库的 `.gitignore` 或 `.git/info/exclude`。
-
-## 隐私
-
-| 图源 | 数据处理方式 |
-| :-- | :-- |
-| `render` | 全程本地 |
-| `stock` | 规划中，只发送搜索关键词 |
-| `local-model` | 使用用户自己的本机 CLI 与订阅，我们不经手数据 |
+不联网，检查 Node.js 版本、Chromium、配置文件权限，以及本机有没有 `codex`、`grok`、`claude`。
 
 ## 开发
 
 ```bash
+pnpm install
 pnpm check
 pnpm build
 ```
-
-测试与源码模块同目录。构建产物 `dist/main.js` 提供 `illoai` 命令。
 
 ## License
 

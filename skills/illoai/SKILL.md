@@ -9,6 +9,12 @@ allowed-tools: Bash
 
 Create a set of images that shares one visual language. Treat the article, presentation, product, or campaign as the unit of style. Do not pick a new style for each image.
 
+## Setup
+
+Use an installed `illoai` command when available. Otherwise prefix each command with `npx --yes --package @liustack/illoai@0.1.0`.
+
+Run `illoai doctor` once on a new machine. If it reports Chromium missing, run `npx --yes playwright install chromium`, then run doctor again.
+
 ## Workspace first
 
 Run `illoai project` before generating anything.

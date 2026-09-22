@@ -1,7 +1,7 @@
 {
     "name": "@liustack/illoai",
     "version": "0.1.0",
-    "description": "A coherent visual system for every image in an article or presentation",
+    "description": "Free article covers from real photos: your agent picks a CC0 or Pexels photo, adds your headline and palette, and renders it locally",
     "type": "module",
     "bin": {
         "illoai": "./dist/main.js"
@@ -27,10 +27,17 @@
     ],
     "keywords": [
         "cli",
+        "cover-image",
+        "article-cover",
+        "stock-photos",
+        "openverse",
+        "pexels",
         "illustration",
         "html-to-png",
         "playwright",
         "agent-skill",
+        "claude-code",
+        "codex",
         "illoai"
     ],
     "author": "Leon Liu",
