@@ -56,4 +56,16 @@ describe('photo cover', () => {
         expect(html).toContain('data-density="short"');
         expect(html).not.toContain('<script');
     });
+
+    it('puts only the headline on the cover, with no tool name or explanatory labels', () => {
+        const html = createPhotoCoverTemplate('Dawn', {
+            photo: { dataUri: 'data:image/jpeg;base64,AAAA', sourceWidth: 1, sourceHeight: 1 },
+        });
+        const body = html.slice(html.indexOf('<body>'));
+
+        expect(body).toContain('>Dawn</p>');
+        for (const label of ['IlloAI', 'Photo cover', 'Local render', 'visual language']) {
+            expect(body).not.toContain(label);
+        }
+    });
 });

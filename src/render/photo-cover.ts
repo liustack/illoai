@@ -1,5 +1,6 @@
 // 照片封面：图库照片做底图，项目调色板做色调层，正文大字压在下三分之一。
 // 渲染引擎禁网禁 JS，照片先用 sharp 裁到画布像素尺寸再内联成 data URI。
+// 封面是用户要发出去的成品，画面上只有照片、配色和标题，不印工具名和说明字样。
 import sharp from 'sharp';
 import type { PaletteSlotValue } from '../styles/schema.ts';
 import { resolveRenderColors } from './template.ts';
@@ -85,11 +86,11 @@ export function createPhotoCoverTemplate(text: string, options: PhotoCoverOption
 
         #canvas {
             position: relative;
-            display: grid;
-            grid-template-rows: auto 1fr auto;
+            display: flex;
+            align-items: flex-end;
             width: 100vw;
             height: 100vh;
-            padding: 5.4vh 5.6vw 5vh;
+            padding: 6vh 5.6vw 7.2vh;
             isolation: isolate;
         }
 
@@ -133,35 +134,6 @@ export function createPhotoCoverTemplate(text: string, options: PhotoCoverOption
             background: var(--illo-accent);
         }
 
-        header,
-        footer {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-            font-size: clamp(11px, 1.05vw, 18px);
-            font-weight: 650;
-            letter-spacing: 0.13em;
-            line-height: 1;
-            text-transform: uppercase;
-            text-shadow: 0 1px 2px color-mix(in srgb, var(--illo-ink) 60%, transparent);
-        }
-
-        .brand {
-            font-family: "Helvetica Neue", "PingFang SC", sans-serif;
-            font-size: clamp(18px, 1.75vw, 30px);
-            font-weight: 800;
-            letter-spacing: -0.045em;
-            text-transform: none;
-        }
-
-        .copy-wrap {
-            display: flex;
-            align-items: flex-end;
-            min-height: 0;
-            padding: 4vh 0 3.6vh;
-        }
-
         .copy {
             margin: 0;
             font-weight: 600;
@@ -189,10 +161,6 @@ export function createPhotoCoverTemplate(text: string, options: PhotoCoverOption
             line-height: 1.08;
             text-wrap: pretty;
         }
-
-        .local {
-            color: var(--illo-accent);
-        }
     </style>
 </head>
 <body>
@@ -200,17 +168,7 @@ export function createPhotoCoverTemplate(text: string, options: PhotoCoverOption
         <img class="photo" src="${options.photo.dataUri}" alt="">
         <div class="wash" aria-hidden="true"></div>
         <div class="scrim" aria-hidden="true"></div>
-        <header>
-            <span class="brand">IlloAI</span>
-            <span>Photo cover / 001</span>
-        </header>
-        <section class="copy-wrap" aria-label="Rendered text">
-            <p class="copy" data-density="${density}">${safeText}</p>
-        </section>
-        <footer>
-            <span>One story · one visual language</span>
-            <span class="local">Local render</span>
-        </footer>
+        <p class="copy" data-density="${density}">${safeText}</p>
     </main>
 </body>
 </html>`;
