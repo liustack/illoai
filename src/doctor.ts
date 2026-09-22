@@ -73,7 +73,7 @@ function chromiumCheck(executablePath: string, platform: NodeJS.Platform): Docto
             id: 'chromium',
             label: 'Chromium',
             status: 'error',
-            message: `Not available at ${executablePath}. Run npx playwright install chromium.`,
+            message: `Not available at ${executablePath}. Run npx --yes --package @liustack/illoai playwright install chromium.`,
         };
     }
 }

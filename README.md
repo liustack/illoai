@@ -48,12 +48,14 @@ Your agent runs these for you. You can also run them yourself:
 
 ```bash
 npm i -g @liustack/illoai
-npx playwright install chromium
+npx --yes --package @liustack/illoai playwright install chromium
 
 illoai new my-post
 illoai stock search "harbour night" --orientation landscape
 illoai gen "You can't catch the traffic you don't understand" --source stock --photo openverse:<id> --preset 16:9
 ```
+
+Install Chromium through the Playwright that ships with illoai. A bare `npx playwright` can pick up an older copy from the npx cache and download a browser that does not match.
 
 `stock search` prints one photo per line: ref, size, license, creator, thumbnail URL. Pick one and pass its ref to `--photo`. `--photo` also takes a local image path.
 

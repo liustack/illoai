@@ -13,7 +13,7 @@ Create a set of images that shares one visual language. Treat the article, prese
 
 Use an installed `illoai` command when available. Otherwise prefix each command with `npx --yes --package @liustack/illoai@0.2.0`.
 
-Run `illoai doctor` once on a new machine. If it reports Chromium missing, run `npx --yes playwright install chromium`, then run doctor again.
+Run `illoai doctor` once on a new machine. If it reports Chromium missing, run `npx --yes --package @liustack/illoai@0.2.0 playwright install chromium`, then run doctor again. Do not run a bare `npx playwright install`: it can resolve a different Playwright version and download a browser this package cannot use.
 
 ## Workspace first
 

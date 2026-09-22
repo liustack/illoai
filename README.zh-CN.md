@@ -48,12 +48,14 @@ agent 会替你跑这些命令。想自己动手也行：
 
 ```bash
 npm i -g @liustack/illoai
-npx playwright install chromium
+npx --yes --package @liustack/illoai playwright install chromium
 
 illoai new my-post
 illoai stock search "harbour night" --orientation landscape
 illoai gen "人接不住认知以外的流量，也赚不到认知以外的钱" --source stock --photo openverse:<id> --preset 16:9
 ```
+
+浏览器要用 illoai 自带的 Playwright 来装，直接 `npx playwright` 可能拿到 npx 缓存里的旧版本，装出来的 Chromium 对不上。
 
 `stock search` 每行列一张照片：ref、尺寸、授权、作者、缩略图地址。挑一张，把 ref 交给 `--photo`。`--photo` 也收本地图片路径。
 
