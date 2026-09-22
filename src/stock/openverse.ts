@@ -115,12 +115,18 @@ function parseHit(raw: unknown): StockHit | null {
     if (!isCc0OrPdm(license)) {
         return null;
     }
+    // 没有尺寸的条目没法判方向，也没法排版，直接跳过而不是填 0。
+    const width = asNumber(photo.width);
+    const height = asNumber(photo.height);
+    if (width === undefined || height === undefined || width <= 0 || height <= 0) {
+        return null;
+    }
     return {
         ref: `openverse:${id}`,
         provider: 'openverse',
         id,
-        width: asNumber(photo.width) ?? 0,
-        height: asNumber(photo.height) ?? 0,
+        width,
+        height,
         creator: asString(photo.creator) ?? 'unknown',
         license,
         attribution: '',

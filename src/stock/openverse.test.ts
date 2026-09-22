@@ -41,6 +41,8 @@ describe('openverse', () => {
                     cc0,
                     { ...cc0, id: 'by', license: 'by' },
                     { ...cc0, id: 'pdm-portrait', license: 'pdm', width: 900, height: 1600 },
+                    { ...cc0, id: 'no-size', width: undefined, height: undefined },
+                    { ...cc0, id: 'zero-size', width: 0, height: 0 },
                 ],
             });
         });

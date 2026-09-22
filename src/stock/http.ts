@@ -38,12 +38,15 @@ export function redactSecrets(text: string, secrets: readonly string[]): string 
     return result;
 }
 
+export const MAX_RETRY_DELAY_MS = 10_000;
+export const JSON_TIMEOUT_MS = 20_000;
+
 function retryDelayMs(res: Response, attempt: number): number {
     const raw = res.headers.get('Retry-After');
     if (raw !== null && raw !== '') {
         const seconds = Number(raw);
         if (Number.isFinite(seconds) && seconds >= 0) {
-            return Math.round(seconds * 1000);
+            return Math.min(Math.round(seconds * 1000), MAX_RETRY_DELAY_MS);
         }
     }
     return attempt === 0 ? 500 : 1500;
@@ -63,7 +66,10 @@ export async function fetchJson(request: JsonRequest): Promise<unknown> {
     while (true) {
         let res: Response;
         try {
-            res = await request.fetch(request.url, request.init);
+            res = await request.fetch(request.url, {
+                ...request.init,
+                signal: AbortSignal.timeout(JSON_TIMEOUT_MS),
+            });
         } catch (error) {
             throw new Error(
                 redactSecrets(

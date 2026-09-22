@@ -74,7 +74,7 @@ describe('pexels', () => {
         });
         expect(fallback.downloadUrl).toBe(photo.src.large2x);
 
-        const missing = vi.fn(async () => json({ id: 42, src: {} }));
+        const missing = vi.fn(async () => json({ id: 42, width: 10, height: 10, src: {} }));
         await expect(
             loadPexelsPhoto('42', { apiKey: 'k', fetch: missing as typeof fetch, sleep: noSleep }),
         ).rejects.toThrowError('Pexels photo 42 has no download URL.');

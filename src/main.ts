@@ -2,7 +2,7 @@
 
 declare const __APP_VERSION__: string;
 
-import { existsSync, mkdtempSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -120,9 +120,14 @@ function parseOrientation(value: string): StockOrientation {
     return value as StockOrientation;
 }
 
+function clip(value: string, width: number): string {
+    const chars = Array.from(value);
+    return chars.length <= width ? value : `${chars.slice(0, width - 1).join('')}…`;
+}
+
 function formatStockHit(hit: StockHit): string {
     const size = `${hit.width}x${hit.height}`;
-    return `${hit.ref.padEnd(48)}${size.padEnd(12)}${hit.license.padEnd(16)}${hit.creator.padEnd(24)}${hit.thumbnail}`;
+    return `${hit.ref.padEnd(48)}${size.padEnd(12)}${clip(hit.license, 15).padEnd(16)}${clip(hit.creator, 23).padEnd(24)}${hit.thumbnail}`;
 }
 
 function creditLines(photo: {
@@ -308,6 +313,7 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                     };
 
                     let photoPath: string;
+                    let tempDir: string | undefined;
                     let photoMeta: {
                         ref?: string;
                         provider?: StockProvider;
@@ -318,9 +324,12 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                     } = {};
                     if (isStockRef(options.photo)) {
                         const stem = stockFileStem(options.photo);
+                        if (!workspaceDir) {
+                            tempDir = mkdtempSync(join(tmpdir(), 'illoai-stock-'));
+                        }
                         const refsDir = workspaceDir
                             ? join(workspaceDir, 'refs')
-                            : mkdtempSync(join(tmpdir(), 'illoai-stock-'));
+                            : (tempDir as string);
                         const fetched = await fetchStockPhoto(
                             { ref: options.photo, basePath: join(refsDir, stem), now },
                             stockRuntime,
@@ -346,11 +355,18 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                         : workspaceDir
                           ? defaultWorkspaceOutputPath(workspaceDir, now)
                           : effective.output;
-                    const photo = await preparePhotoLayer(
-                        photoPath,
-                        Math.round(effective.render.width * effective.render.scale),
-                        Math.round(effective.render.height * effective.render.scale),
-                    );
+                    let photo: Awaited<ReturnType<typeof preparePhotoLayer>>;
+                    try {
+                        photo = await preparePhotoLayer(
+                            photoPath,
+                            Math.round(effective.render.width * effective.render.scale),
+                            Math.round(effective.render.height * effective.render.scale),
+                        );
+                    } finally {
+                        if (tempDir !== undefined) {
+                            rmSync(tempDir, { recursive: true, force: true });
+                        }
+                    }
                     const result = await runtime.renderHtml({
                         html: createPhotoCoverTemplate(text, {
                             photo,

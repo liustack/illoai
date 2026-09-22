@@ -42,12 +42,17 @@ function parseHit(raw: unknown): StockHit | null {
     }
     const src = asRecord(photo.src) ?? {};
     const creator = asString(photo.photographer) ?? 'unknown';
+    const width = asNumber(photo.width);
+    const height = asNumber(photo.height);
+    if (width === undefined || height === undefined || width <= 0 || height <= 0) {
+        return null;
+    }
     return {
         ref: `pexels:${id}`,
         provider: 'pexels',
         id,
-        width: asNumber(photo.width) ?? 0,
-        height: asNumber(photo.height) ?? 0,
+        width,
+        height,
         creator,
         license: PEXELS_LICENSE,
         attribution: `Photo by ${creator} on Pexels`,

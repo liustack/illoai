@@ -80,6 +80,7 @@ export async function searchStock(
 
 export async function loadStockPhoto(ref: string, runtime: StockRuntime): Promise<StockPhoto> {
     const parsed = parseStockRef(ref);
+    // 只借它的报错：pexels ref 没 key 时在这里停，不换到 openverse。
     selectStockProvider(parsed.provider, runtime.config);
     return parsed.provider === 'pexels'
         ? loadPexelsPhoto(parsed.id, pexelsContext(runtime))

@@ -111,6 +111,11 @@ function validateStockConfig(stock: unknown, configPath: string): void {
         invalidConfig(configPath, 'stock', 'an object');
     }
     for (const key of Object.keys(stock)) {
+        if (key === 'apiKey' || key === 'baseUrl') {
+            throw new Error(
+                `${configPath} uses the old "stock.${key}" key. Stock credentials are now per provider: delete "stock.${key}" from the file, then run illoai config set stock.pexels.apiKey <key> if you use Pexels.`,
+            );
+        }
         if (!(key in STOCK_PROVIDER_KEYS)) {
             throw new Error(`${configPath} contains unknown config key "stock.${key}".`);
         }

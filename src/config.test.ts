@@ -81,6 +81,11 @@ describe('layered config', () => {
     it('rejects unknown stock providers and non-string credentials at the config boundary', () => {
         const configPath = tempConfigPath();
         initConfigFile(configPath);
+        writeFileSync(configPath, '{"stock":{"apiKey":"k","baseUrl":"https://x"}}\n', 'utf8');
+        expect(() => loadConfigFile(configPath)).toThrowError(
+            `${configPath} uses the old "stock.apiKey" key. Stock credentials are now per provider: delete "stock.apiKey" from the file, then run illoai config set stock.pexels.apiKey <key> if you use Pexels.`,
+        );
+
         writeFileSync(configPath, '{"stock":{"unsplash":{"apiKey":"x"}}}\n', 'utf8');
         expect(() => loadConfigFile(configPath)).toThrowError(
             `${configPath} contains unknown config key "stock.unsplash".`,

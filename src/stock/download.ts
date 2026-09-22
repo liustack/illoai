@@ -17,6 +17,7 @@ export type PinnedFetch = typeof pinnedFetch;
 export interface DownloadContext {
     lookup?: DnsLookup;
     pinnedFetch?: PinnedFetch;
+    timeoutMs?: number;
 }
 
 function assertSafeDownloadUrl(value: string): URL {
@@ -57,6 +58,8 @@ export async function downloadPhotoBytes(
     const doFetch = context.pinnedFetch ?? pinnedFetch;
     const response = await doFetch(url, pin, {
         headers: { 'Accept-Encoding': 'identity', 'User-Agent': userAgent() },
+        maxBytes: MAX_DOWNLOAD_BYTES,
+        ...(context.timeoutMs !== undefined ? { timeoutMs: context.timeoutMs } : {}),
     });
     if (!response.ok) {
         throw new Error(`Stock photo download failed with HTTP ${response.status}.`);

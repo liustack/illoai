@@ -51,7 +51,7 @@ Search first. Openverse needs no key and returns only cc0 and public-domain phot
 illoai stock search "harbour dawn" --orientation landscape
 ```
 
-The output lists one photo per line: ref, size, license, creator, thumbnail URL. Look at the thumbnails and choose. Do not take the first result by default. Prefer a photo with a calm area where the headline can sit. Then render:
+The output lists one photo per line: ref, size, license, creator, thumbnail URL. Do not take the first result by default. Pick by the text you can read: the source page title and creator hint at the subject, and the size must not be smaller than the target preset. When the harness can show images, fetch a thumbnail URL and look for a calm area where the headline can sit. Then render:
 
 ```bash
 illoai gen "<headline>" --source stock --photo openverse:<id> --preset 16:9
@@ -121,4 +121,6 @@ illoai config show
 
 `stock.openverse.clientId` and `stock.openverse.clientSecret` are optional and only raise the Openverse rate limit.
 
-Settings resolve in this order: command flags, `~/.illoai/config.json`, built-in defaults. `config show` masks secrets and URL credentials. `illoai doctor` performs offline checks only.
+Settings resolve in this order: command flags, `~/.illoai/config.json`, built-in defaults. `config show` masks every stock credential. `illoai doctor` performs offline checks only.
+
+Stock downloads connect directly to the photo host. A system-wide proxy set only through `HTTPS_PROXY` is not used. Proxies that take over DNS (fake-ip mode) work.

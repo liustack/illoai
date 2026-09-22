@@ -67,7 +67,7 @@ function stripIpv6Brackets(hostname: string): string {
     return hostname;
 }
 
-export async function assertSafeRemoteTarget(url: URL, lookup?: DnsLookup): Promise<PinnedTarget> {
+export async function assertSafeRemoteTarget(url: URL, lookup: DnsLookup): Promise<PinnedTarget> {
     if (isBlockedHostname(url.hostname)) {
         throw new Error(blockedMessage(url.hostname));
     }
@@ -79,10 +79,6 @@ export async function assertSafeRemoteTarget(url: URL, lookup?: DnsLookup): Prom
             throw new Error(blockedMessage(hostname));
         }
         return { hostname, address: hostname, family: ipFamily };
-    }
-
-    if (!lookup) {
-        return { hostname, address: hostname, family: 0 };
     }
 
     let resolved: Array<{ address: string; family: number }>;
@@ -106,7 +102,13 @@ export async function assertSafeRemoteTarget(url: URL, lookup?: DnsLookup): Prom
 
 export interface PinnedFetchInit {
     headers?: Record<string, string>;
+    // 正文超过这个字节数就断开连接，不等读完再判断。
+    maxBytes?: number;
+    // 建连和每次等待数据的上限，以及整个请求的总上限。
+    timeoutMs?: number;
 }
+
+export const DEFAULT_PINNED_TIMEOUT_MS = 30_000;
 
 type LookupCallback = (
     err: NodeJS.ErrnoException | null,
@@ -121,7 +123,21 @@ export function pinnedFetch(
     init: PinnedFetchInit = {},
 ): Promise<Response> {
     const doRequest = url.protocol === 'http:' ? httpRequest : httpsRequest;
+    const timeoutMs = init.timeoutMs ?? DEFAULT_PINNED_TIMEOUT_MS;
     return new Promise((resolve, reject) => {
+        let settled = false;
+        const fail = (error: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(deadline);
+            req.destroy(error);
+            reject(error);
+        };
+        const deadline = setTimeout(() => {
+            fail(new Error(`Download of ${url.host} exceeded ${timeoutMs}ms.`));
+        }, timeoutMs);
         const req = doRequest(
             url,
             {
@@ -137,12 +153,40 @@ export function pinnedFetch(
                 },
             },
             (res) => {
+                const declared = Number(res.headers['content-length']);
+                if (
+                    init.maxBytes !== undefined &&
+                    Number.isFinite(declared) &&
+                    declared > init.maxBytes
+                ) {
+                    fail(
+                        new Error(
+                            `Stock photo is ${declared} bytes, larger than the ${init.maxBytes} byte limit.`,
+                        ),
+                    );
+                    return;
+                }
                 const chunks: Buffer[] = [];
+                let received = 0;
                 res.on('data', (chunk: Buffer) => {
+                    received += chunk.byteLength;
+                    if (init.maxBytes !== undefined && received > init.maxBytes) {
+                        fail(
+                            new Error(
+                                `Stock photo exceeded the ${init.maxBytes} byte limit while downloading.`,
+                            ),
+                        );
+                        return;
+                    }
                     chunks.push(chunk);
                 });
-                res.on('error', reject);
+                res.on('error', fail);
                 res.on('end', () => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    clearTimeout(deadline);
                     const headers = new Headers();
                     for (const [name, value] of Object.entries(res.headers)) {
                         if (typeof value === 'string') {
@@ -161,7 +205,10 @@ export function pinnedFetch(
                 });
             },
         );
-        req.on('error', reject);
+        req.setTimeout(timeoutMs, () => {
+            fail(new Error(`Download of ${url.host} stalled for ${timeoutMs}ms.`));
+        });
+        req.on('error', fail);
         req.end();
     });
 }
@@ -248,6 +295,21 @@ function inIpv6Range(value: bigint, start: string, prefixLength: number): boolea
     return (value & mask) === (startValue & mask);
 }
 
+function ipv4FromLow32(value: bigint): string {
+    const low = Number(value & 0xffffffffn);
+    return [low >>> 24, (low >>> 16) & 0xff, (low >>> 8) & 0xff, low & 0xff].join('.');
+}
+
+function embeddedIpv4(value: bigint): string | null {
+    if (inIpv6Range(value, '::', 96) || inIpv6Range(value, '64:ff9b::', 96)) {
+        return ipv4FromLow32(value);
+    }
+    if (inIpv6Range(value, '2002::', 16)) {
+        return ipv4FromLow32(value >> 80n);
+    }
+    return null;
+}
+
 function hasMappedV4Prefix(groups: number[]): boolean {
     return groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff;
 }
@@ -279,8 +341,16 @@ function isPrivateIPv6(ipAddress: string): boolean {
     if (value === null) {
         return true;
     }
+    // ::/96 是废弃的 IPv4 兼容地址，2002::/16 是 6to4，64:ff9b::/96 是 NAT64，
+    // 三种都能把一个 IPv4 藏进 IPv6 里。
+    const embedded = embeddedIpv4(value);
+    if (embedded !== null && isPrivateIPv4(embedded)) {
+        return true;
+    }
     return (
-        inIpv6Range(value, '::', 128) ||
+        inIpv6Range(value, '::', 96) ||
+        inIpv6Range(value, '2002::', 16) ||
+        inIpv6Range(value, '64:ff9b::', 96) ||
         inIpv6Range(value, '::1', 128) ||
         inIpv6Range(value, 'fc00::', 7) ||
         inIpv6Range(value, 'fe80::', 10) ||

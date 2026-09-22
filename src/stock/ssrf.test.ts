@@ -1,3 +1,4 @@
+import type { RequestListener } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import {
     assertSafeRemoteTarget,
@@ -53,6 +54,9 @@ describe('ssrf guards', () => {
         await expect(
             assertSafeRemoteTarget(new URL('https://127.0.0.1/a.jpg'), async () => []),
         ).rejects.toThrowError('Blocked private or reserved download target: 127.0.0.1');
+        await expect(
+            assertSafeRemoteTarget(new URL('https://[::127.0.0.1]/a.jpg'), async () => []),
+        ).rejects.toThrowError('Blocked private or reserved download target');
         await expect(
             assertSafeRemoteTarget(new URL('https://nowhere.example/a.jpg'), async () => []),
         ).rejects.toThrowError('Host nowhere.example did not resolve to any IP address.');
@@ -114,6 +118,90 @@ describe('pinnedFetch', () => {
             expect(response.ok).toBe(false);
         } finally {
             await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    });
+});
+
+describe('embedded IPv4 in IPv6', () => {
+    it('blocks IPv4-compatible, 6to4, and NAT64 forms of private addresses', () => {
+        expect(isPrivateIpAddress('::127.0.0.1')).toBe(true);
+        expect(isPrivateIpAddress('::7f00:1')).toBe(true);
+        expect(isPrivateIpAddress('2002:7f00:1::')).toBe(true);
+        expect(isPrivateIpAddress('2002:c0a8:101::')).toBe(true);
+        expect(isPrivateIpAddress('64:ff9b::7f00:1')).toBe(true);
+        expect(isPrivateIpAddress('64:ff9b::a00:1')).toBe(true);
+        expect(isPrivateIpAddress('2002:808:808::')).toBe(true);
+        expect(isPrivateIpAddress('64:ff9b::808:808')).toBe(true);
+    });
+});
+
+describe('pinnedFetch limits', () => {
+    async function serve(handler: RequestListener) {
+        const { createServer } = await import('node:http');
+        const server = createServer(handler);
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+        return { port, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+    }
+    const pin = { hostname: 'pinned.invalid', address: '127.0.0.1', family: 4 };
+
+    it('rejects a declared content-length above maxBytes before reading the body', async () => {
+        let bodySent = false;
+        const s = await serve((_req, res) => {
+            res.writeHead(200, { 'content-length': '1000' });
+            bodySent = true;
+            res.end(Buffer.alloc(1000));
+        });
+        try {
+            await expect(
+                pinnedFetch(new URL(`http://pinned.invalid:${s.port}/a`), pin, { maxBytes: 100 }),
+            ).rejects.toThrowError('Stock photo is 1000 bytes, larger than the 100 byte limit.');
+            expect(bodySent).toBe(true);
+        } finally {
+            await s.close();
+        }
+    });
+
+    it('cuts a chunked stream that grows past maxBytes', async () => {
+        const s = await serve((_req, res) => {
+            res.writeHead(200, { 'transfer-encoding': 'chunked' });
+            let sent = 0;
+            const timer = setInterval(() => {
+                if (res.destroyed) {
+                    clearInterval(timer);
+                    return;
+                }
+                res.write(Buffer.alloc(64 * 1024));
+                sent += 64 * 1024;
+                if (sent > 2 * 1024 * 1024) {
+                    clearInterval(timer);
+                    res.end();
+                }
+            }, 1);
+        });
+        try {
+            await expect(
+                pinnedFetch(new URL(`http://pinned.invalid:${s.port}/a`), pin, {
+                    maxBytes: 200_000,
+                }),
+            ).rejects.toThrowError('exceeded the 200000 byte limit while downloading');
+        } finally {
+            await s.close();
+        }
+    });
+
+    it('fails a stalled response after timeoutMs', async () => {
+        const s = await serve((_req, res) => {
+            res.writeHead(200);
+            res.write('partial');
+        });
+        try {
+            await expect(
+                pinnedFetch(new URL(`http://pinned.invalid:${s.port}/a`), pin, { timeoutMs: 300 }),
+            ).rejects.toThrowError(/stalled for 300ms|exceeded 300ms/);
+        } finally {
+            await s.close();
         }
     });
 });

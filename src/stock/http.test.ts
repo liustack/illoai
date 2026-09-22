@@ -27,6 +27,21 @@ describe('stock http layer', () => {
         ).resolves.toEqual({ ok: true });
         expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([2000, 1500]);
 
+        const hugeRetry = [
+            new Response('x', { status: 429, headers: { 'Retry-After': '999999' } }),
+            jsonResponse({ ok: true }),
+        ];
+        const slowSleep = vi.fn(async (_ms: number) => undefined);
+        await fetchJson({
+            label: 'test',
+            url: 'https://x',
+            init: {},
+            fetch: vi.fn(async () => hugeRetry.shift() as Response),
+            sleep: slowSleep,
+            secrets: [],
+        });
+        expect(slowSleep.mock.calls[0]?.[0]).toBe(10_000);
+
         const always429 = vi.fn(async () => new Response('nope', { status: 429 }));
         await expect(
             fetchJson({
