@@ -91,7 +91,9 @@ export async function fetchJson(request: JsonRequest): Promise<unknown> {
         try {
             return JSON.parse(text) as unknown;
         } catch {
-            throw new Error(`${request.label} returned non-JSON (HTTP ${res.status}).`);
+            throw new Error(
+                `${request.label} returned non-JSON (HTTP ${res.status}): ${redactSecrets(text.slice(0, 200), request.secrets)}`,
+            );
         }
     }
 }
