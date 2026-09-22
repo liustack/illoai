@@ -50,7 +50,8 @@
     "dependencies": {
         "commander": "^13.1.0",
         "playwright": "^1.62.1",
-        "sharp": "^0.35.3"
+        "sharp": "^0.35.3",
+        "undici": "^8.11.0"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.5.7",
