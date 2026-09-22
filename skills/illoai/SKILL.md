@@ -11,7 +11,7 @@ Create a set of images that shares one visual language. Treat the article, prese
 
 ## Setup
 
-Use an installed `illoai` command when available. Otherwise prefix each command with `npx --yes --package @liustack/illoai@0.1.0`.
+Use an installed `illoai` command when available. Otherwise prefix each command with `npx --yes --package @liustack/illoai@0.2.0`.
 
 Run `illoai doctor` once on a new machine. If it reports Chromium missing, run `npx --yes playwright install chromium`, then run doctor again.
 
@@ -77,7 +77,7 @@ illoai gen "<text>" --source render --preset 16:9
 ```
 
 ```bash
-npx --yes --package @liustack/illoai@0.1.0 illoai gen "<text>" --source render --preset 16:9 --output <path>.png
+npx --yes --package @liustack/illoai@0.2.0 illoai gen "<text>" --source render --preset 16:9 --output <path>.png
 ```
 
 When a workspace exists, omit `--output` so the PNG lands in `.illoai/out/`. Use `--output` only when the user names a path.
