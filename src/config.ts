@@ -11,6 +11,16 @@ export type ImageSource = (typeof IMAGE_SOURCES)[number];
 export const LOCAL_MODEL_PROVIDERS = ['codex', 'grok', 'claude'] as const;
 export type LocalModelProvider = (typeof LOCAL_MODEL_PROVIDERS)[number];
 
+export interface StockConfig {
+    pexels?: {
+        apiKey?: string;
+    };
+    openverse?: {
+        clientId?: string;
+        clientSecret?: string;
+    };
+}
+
 export interface IlloAIConfigFile {
     source?: ImageSource;
     output?: string;
@@ -20,10 +30,7 @@ export interface IlloAIConfigFile {
         height?: number;
         scale?: number;
     };
-    stock?: {
-        apiKey?: string;
-        baseUrl?: string;
-    };
+    stock?: StockConfig;
     localModel?: {
         via?: LocalModelProvider;
     };
@@ -94,6 +101,41 @@ function invalidConfig(configPath: string, key: string, expectation: string): ne
     throw new Error(`${configPath} has invalid "${key}". Expected ${expectation}.`);
 }
 
+const STOCK_PROVIDER_KEYS: Record<keyof StockConfig, readonly string[]> = {
+    pexels: ['apiKey'],
+    openverse: ['clientId', 'clientSecret'],
+};
+
+function validateStockConfig(stock: unknown, configPath: string): void {
+    if (!isPlainObject(stock)) {
+        invalidConfig(configPath, 'stock', 'an object');
+    }
+    for (const key of Object.keys(stock)) {
+        if (!(key in STOCK_PROVIDER_KEYS)) {
+            throw new Error(`${configPath} contains unknown config key "stock.${key}".`);
+        }
+    }
+    for (const [provider, allowed] of Object.entries(STOCK_PROVIDER_KEYS)) {
+        const section = stock[provider];
+        if (section === undefined) {
+            continue;
+        }
+        if (!isPlainObject(section)) {
+            invalidConfig(configPath, `stock.${provider}`, 'an object');
+        }
+        for (const key of Object.keys(section)) {
+            if (!allowed.includes(key)) {
+                throw new Error(
+                    `${configPath} contains unknown config key "stock.${provider}.${key}".`,
+                );
+            }
+            if (typeof section[key] !== 'string') {
+                invalidConfig(configPath, `stock.${provider}.${key}`, 'a string');
+            }
+        }
+    }
+}
+
 function validateConfig(parsed: Record<string, unknown>, configPath: string): IlloAIConfigFile {
     const rootKeys = new Set(['source', 'output', 'render', 'stock', 'localModel']);
     for (const key of Object.keys(parsed)) {
@@ -157,31 +199,7 @@ function validateConfig(parsed: Record<string, unknown>, configPath: string): Il
     }
 
     if (parsed.stock !== undefined) {
-        if (!isPlainObject(parsed.stock)) {
-            invalidConfig(configPath, 'stock', 'an object');
-        }
-        const stockKeys = new Set(['apiKey', 'baseUrl']);
-        for (const key of Object.keys(parsed.stock)) {
-            if (!stockKeys.has(key)) {
-                throw new Error(`${configPath} contains unknown config key "stock.${key}".`);
-            }
-        }
-        if (parsed.stock.apiKey !== undefined && typeof parsed.stock.apiKey !== 'string') {
-            invalidConfig(configPath, 'stock.apiKey', 'a string');
-        }
-        if (parsed.stock.baseUrl !== undefined && typeof parsed.stock.baseUrl !== 'string') {
-            invalidConfig(configPath, 'stock.baseUrl', 'a URL string');
-        }
-        if (typeof parsed.stock.baseUrl === 'string') {
-            try {
-                const url = new URL(parsed.stock.baseUrl);
-                if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-                    invalidConfig(configPath, 'stock.baseUrl', 'an http or https URL');
-                }
-            } catch {
-                invalidConfig(configPath, 'stock.baseUrl', 'an http or https URL');
-            }
-        }
+        validateStockConfig(parsed.stock, configPath);
     }
 
     if (parsed.localModel !== undefined) {
@@ -285,18 +303,18 @@ export function setConfigValue(
             config.render.scale = parseScaleSetting(value);
             break;
         }
-        case 'stock.apiKey': {
+        case 'stock.pexels.apiKey': {
             config.stock ??= {};
-            config.stock.apiKey = rawValue;
+            config.stock.pexels ??= {};
+            config.stock.pexels.apiKey = rawValue;
             break;
         }
-        case 'stock.baseUrl': {
-            const url = new URL(value);
-            if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-                throw new Error('stock.baseUrl must use http or https.');
-            }
+        case 'stock.openverse.clientId':
+        case 'stock.openverse.clientSecret': {
             config.stock ??= {};
-            config.stock.baseUrl = url.toString();
+            config.stock.openverse ??= {};
+            const field = dottedKey.slice('stock.openverse.'.length) as 'clientId' | 'clientSecret';
+            config.stock.openverse[field] = rawValue;
             break;
         }
         case 'localModel.via': {
@@ -332,35 +350,34 @@ export function resolveEffectiveConfig(
             height: flags.height ?? fileConfig.render?.height ?? dimensions.height,
             scale: flags.scale ?? fileConfig.render?.scale ?? BUILT_IN_CONFIG.render.scale,
         },
-        ...(fileConfig.stock ? { stock: { ...fileConfig.stock } } : {}),
+        ...(fileConfig.stock ? { stock: structuredClone(fileConfig.stock) } : {}),
         ...(fileConfig.localModel ? { localModel: { ...fileConfig.localModel } } : {}),
     };
 }
 
-function redactUrlCredentials(value: string): string {
-    const url = new URL(value);
-    if (url.username === '' && url.password === '') {
-        return value;
+function redactStockConfig(stock: StockConfig): StockConfig {
+    const redacted = structuredClone(stock);
+    for (const [provider, allowed] of Object.entries(STOCK_PROVIDER_KEYS)) {
+        const section = redacted[provider as keyof StockConfig] as
+            | Record<string, string | undefined>
+            | undefined;
+        if (section === undefined) {
+            continue;
+        }
+        for (const key of allowed) {
+            if (section[key] !== undefined) {
+                section[key] = '[redacted]';
+            }
+        }
     }
-
-    return `${url.protocol}//[redacted]@${url.host}${url.pathname}${url.search}${url.hash}`;
+    return redacted;
 }
 
 export function renderConfigShow(fileConfig: IlloAIConfigFile): string {
     const effective = resolveEffectiveConfig(fileConfig, {});
     const redacted: EffectiveConfig = {
         ...effective,
-        ...(effective.stock
-            ? {
-                  stock: {
-                      ...effective.stock,
-                      ...(effective.stock.apiKey ? { apiKey: '[redacted]' } : {}),
-                      ...(effective.stock.baseUrl
-                          ? { baseUrl: redactUrlCredentials(effective.stock.baseUrl) }
-                          : {}),
-                  },
-              }
-            : {}),
+        ...(effective.stock ? { stock: redactStockConfig(effective.stock) } : {}),
     };
 
     return JSON.stringify(redacted, null, 2);

@@ -78,13 +78,22 @@ describe('layered config', () => {
         );
     });
 
-    it('rejects malformed stock endpoints at the config boundary', () => {
+    it('rejects unknown stock providers and non-string credentials at the config boundary', () => {
         const configPath = tempConfigPath();
         initConfigFile(configPath);
-        writeFileSync(configPath, '{"stock":{"baseUrl":"not-a-url"}}\n', 'utf8');
-
+        writeFileSync(configPath, '{"stock":{"unsplash":{"apiKey":"x"}}}\n', 'utf8');
         expect(() => loadConfigFile(configPath)).toThrowError(
-            `${configPath} has invalid "stock.baseUrl". Expected an http or https URL.`,
+            `${configPath} contains unknown config key "stock.unsplash".`,
+        );
+
+        writeFileSync(configPath, '{"stock":{"pexels":{"apiKey":42}}}\n', 'utf8');
+        expect(() => loadConfigFile(configPath)).toThrowError(
+            `${configPath} has invalid "stock.pexels.apiKey". Expected a string.`,
+        );
+
+        writeFileSync(configPath, '{"stock":{"openverse":{"token":"x"}}}\n', 'utf8');
+        expect(() => loadConfigFile(configPath)).toThrowError(
+            `${configPath} contains unknown config key "stock.openverse.token".`,
         );
     });
 
@@ -94,13 +103,18 @@ describe('layered config', () => {
         setConfigValue('source', 'stock', configPath);
         setConfigValue('render.preset', '3:2', configPath);
         setConfigValue('render.scale', '2', configPath);
-        setConfigValue('stock.apiKey', 'sk-private-value', configPath);
+        setConfigValue('stock.pexels.apiKey', 'sk-private-value', configPath);
+        setConfigValue('stock.openverse.clientId', 'ov-client', configPath);
+        setConfigValue('stock.openverse.clientSecret', 'ov-secret', configPath);
         setConfigValue('localModel.via', 'codex', configPath);
 
         expect(loadConfigFile(configPath)).toEqual({
             source: 'stock',
             render: { preset: '3:2', scale: 2 },
-            stock: { apiKey: 'sk-private-value' },
+            stock: {
+                pexels: { apiKey: 'sk-private-value' },
+                openverse: { clientId: 'ov-client', clientSecret: 'ov-secret' },
+            },
             localModel: { via: 'codex' },
         });
         expect(statSync(configPath).mode & 0o777).toBe(0o600);
@@ -109,17 +123,17 @@ describe('layered config', () => {
         );
     });
 
-    it('redacts secrets and URL credentials from config show output', () => {
+    it('redacts every stock credential from config show output', () => {
         const shown = renderConfigShow({
             stock: {
-                apiKey: 'sk-private-value',
-                baseUrl: 'https://alice:hunter2@example.com/images',
+                pexels: { apiKey: 'sk-private-value' },
+                openverse: { clientId: 'ov-client', clientSecret: 'ov-secret' },
             },
         });
 
         expect(shown).not.toContain('sk-private-value');
-        expect(shown).not.toContain('alice');
-        expect(shown).not.toContain('hunter2');
+        expect(shown).not.toContain('ov-client');
+        expect(shown).not.toContain('ov-secret');
         expect(shown).toContain('[redacted]');
         expect(JSON.parse(shown)).toMatchObject({
             source: 'render',
