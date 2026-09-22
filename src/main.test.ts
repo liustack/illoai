@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setConfigValue } from './config.ts';
 import type { LocalModelRunInput } from './local-model/index.ts';
@@ -53,6 +54,14 @@ function mockRender() {
     }));
 }
 
+async function testPngBytes(width: number, height: number): Promise<Buffer> {
+    return sharp({
+        create: { width, height, channels: 3, background: { r: 40, g: 80, b: 120 } },
+    })
+        .png()
+        .toBuffer();
+}
+
 function mockRunLocalModel() {
     return vi.fn(async (input: LocalModelRunInput) => ({
         outputPath: input.outputPath,
@@ -71,12 +80,15 @@ describe('IlloAI CLI', () => {
         const program = createProgram();
         expect(program.commands.map((command) => command.name())).toEqual([
             'gen',
+            'stock',
             'new',
             'project',
             'styles',
             'config',
             'doctor',
         ]);
+        const stock = program.commands.find((command) => command.name() === 'stock');
+        expect(stock?.commands.map((command) => command.name())).toEqual(['search', 'fetch']);
     });
 
     it('lists styles and prints a style prompt unchanged', async () => {
@@ -262,26 +274,237 @@ describe('IlloAI CLI', () => {
         });
     });
 
-    it('rejects unimplemented image sources without a silent fallback', async () => {
+    it('requires --photo for the stock source and rejects --photo elsewhere', async () => {
         const directory = tempDir('illoai-source-');
         const configPath = join(directory, 'config.json');
         setConfigValue('source', 'stock', configPath);
         const renderHtml = vi.fn();
-        const stdout = captureOutput();
         const stderr = captureOutput();
 
         const exitCode = await runCli(['node', 'illoai', 'gen', 'A subject'], {
             cwd: directory,
             configPath,
             renderHtml,
-            stdout,
+            stdout: captureOutput(),
             stderr,
         });
-
         expect(exitCode).toBe(1);
         expect(renderHtml).not.toHaveBeenCalled();
         expect(stderr.chunks.join('')).toBe(
-            'Error: Source "stock" is not implemented yet. Use --source render.\n',
+            'Error: Source "stock" needs --photo <ref-or-path>. Run illoai stock search "<query>" to pick one.\n',
+        );
+
+        const renderErr = captureOutput();
+        const renderExit = await runCli(
+            ['node', 'illoai', 'gen', 'A', '--source', 'render', '--photo', 'x.jpg'],
+            { cwd: directory, configPath, renderHtml, stdout: captureOutput(), stderr: renderErr },
+        );
+        expect(renderExit).toBe(1);
+        expect(renderErr.chunks.join('')).toBe(
+            'Error: --photo is only valid with --source stock.\n',
+        );
+    });
+
+    it('renders a photo cover from a local image and records the photo in history', async () => {
+        const cwd = tempDir('illoai-photo-local-');
+        await runCli(['node', 'illoai', 'new', 'demo', '--style', 'minimal_watercolor'], {
+            cwd,
+            stdout: captureOutput(),
+        });
+        const photoPath = join(cwd, 'sea.png');
+        writeFileSync(photoPath, await testPngBytes(64, 32));
+
+        const renderHtml = mockRender();
+        const stdout = captureOutput();
+        const now = new Date('2026-09-23T00:00:00.000Z');
+        const exitCode = await runCli(
+            ['node', 'illoai', 'gen', 'Dawn tide', '--source', 'stock', '--photo', 'sea.png'],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                renderHtml,
+                stdout,
+                now: () => now,
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        const html = renderHtml.mock.calls[0]?.[0].html ?? '';
+        expect(html).toContain('Dawn tide');
+        expect(html).toContain('data:image/jpeg;base64,');
+        expect(html).toContain('--illo-paper: #f4efe6');
+        expect(stdout.chunks.join('')).toContain(`Photo: ${photoPath}`);
+        expect(stdout.chunks.join('')).toContain('Privacy: render stayed on this machine.');
+
+        const history = JSON.parse(
+            readFileSync(join(cwd, '.illoai', 'history.jsonl'), 'utf8').trim(),
+        );
+        expect(history).toMatchObject({
+            source: 'stock',
+            text: 'Dawn tide',
+            photo: { path: photoPath },
+        });
+    });
+
+    it('fetches a stock ref into .illoai/refs and renders it as the cover', async () => {
+        const cwd = tempDir('illoai-photo-ref-');
+        await runCli(['node', 'illoai', 'new', 'demo'], { cwd, stdout: captureOutput() });
+        const png = await testPngBytes(80, 40);
+        const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+            expect(String(url)).toBe('https://api.openverse.org/v1/images/a1/');
+            return new Response(
+                JSON.stringify({
+                    id: 'a1',
+                    url: 'https://upload.example/a1.png',
+                    license: 'cc0',
+                    creator: 'Ada',
+                    width: 80,
+                    height: 40,
+                    foreign_landing_url: 'https://flickr.example/a1',
+                }),
+                { status: 200 },
+            );
+        });
+        const stock = {
+            fetch: fetchImpl as typeof fetch,
+            sleep: async () => undefined,
+            download: {
+                lookup: async () => [{ address: '104.16.1.1', family: 4 }],
+                pinnedFetch: async () =>
+                    new Response(png, { status: 200, headers: { 'content-type': 'image/png' } }),
+            },
+        };
+
+        const renderHtml = mockRender();
+        const stdout = captureOutput();
+        const now = new Date('2026-09-23T00:00:00.000Z');
+        const exitCode = await runCli(
+            [
+                'node',
+                'illoai',
+                'gen',
+                'Quiet harbour',
+                '--source',
+                'stock',
+                '--photo',
+                'openverse:a1',
+            ],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                renderHtml,
+                stdout,
+                now: () => now,
+                stock,
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        const refPath = join(cwd, '.illoai', 'refs', 'openverse-a1.png');
+        expect(existsSync(refPath)).toBe(true);
+        expect(JSON.parse(readFileSync(`${refPath}.json`, 'utf8'))).toMatchObject({
+            ref: 'openverse:a1',
+            license: 'cc0',
+            creator: 'Ada',
+        });
+        expect(renderHtml.mock.calls[0]?.[0].html).toContain('Quiet harbour');
+        const out = stdout.chunks.join('');
+        expect(out).toContain('Photo: openverse:a1');
+        expect(out).toContain('License: cc0');
+        expect(out).not.toContain('Credit:');
+        expect(out).toContain('Source: https://flickr.example/a1');
+        expect(out).toContain('Privacy: the photo was downloaded from openverse.');
+
+        const history = JSON.parse(
+            readFileSync(join(cwd, '.illoai', 'history.jsonl'), 'utf8').trim(),
+        );
+        expect(history.photo).toEqual({
+            path: refPath,
+            ref: 'openverse:a1',
+            provider: 'openverse',
+            creator: 'Ada',
+            license: 'cc0',
+            attribution: '',
+            pageUrl: 'https://flickr.example/a1',
+        });
+    });
+
+    it('searches stock and prints picks without choosing one', async () => {
+        const cwd = tempDir('illoai-stock-search-');
+        const fetchImpl = vi.fn(
+            async () =>
+                new Response(
+                    JSON.stringify({
+                        results: [
+                            {
+                                id: 'a1',
+                                url: 'https://upload.example/a1.jpg',
+                                license: 'pdm',
+                                creator: 'Ada',
+                                width: 1600,
+                                height: 900,
+                                thumbnail: 'https://api.openverse.org/thumb/a1',
+                            },
+                        ],
+                    }),
+                    { status: 200 },
+                ),
+        );
+        const stdout = captureOutput();
+        const exitCode = await runCli(
+            ['node', 'illoai', 'stock', 'search', 'harbour dawn', '--orientation', 'landscape'],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                stdout,
+                stock: { fetch: fetchImpl as typeof fetch, sleep: async () => undefined },
+            },
+        );
+
+        expect(exitCode).toBe(0);
+        const out = stdout.chunks.join('');
+        expect(out).toContain('Provider: openverse');
+        expect(out).toContain('openverse:a1');
+        expect(out).toContain('1600x900');
+        expect(out).toContain('https://api.openverse.org/thumb/a1');
+        expect(out).toContain('Pick one by eye');
+    });
+
+    it('refuses --provider pexels without a key instead of switching to openverse', async () => {
+        const cwd = tempDir('illoai-stock-pexels-');
+        const fetchImpl = vi.fn();
+        const stderr = captureOutput();
+        const exitCode = await runCli(
+            ['node', 'illoai', 'stock', 'search', 'desk', '--provider', 'pexels'],
+            {
+                cwd,
+                configPath: join(cwd, 'unused-config.json'),
+                stdout: captureOutput(),
+                stderr,
+                stock: { fetch: fetchImpl as typeof fetch },
+            },
+        );
+
+        expect(exitCode).toBe(1);
+        expect(fetchImpl).not.toHaveBeenCalled();
+        expect(stderr.chunks.join('')).toContain('Pexels needs an API key.');
+    });
+
+    it('stock fetch needs a workspace or --dir and never creates one', async () => {
+        const cwd = tempDir('illoai-stock-fetch-');
+        const stderr = captureOutput();
+        const exitCode = await runCli(['node', 'illoai', 'stock', 'fetch', 'openverse:a1'], {
+            cwd,
+            configPath: join(cwd, 'unused-config.json'),
+            stdout: captureOutput(),
+            stderr,
+            stock: { fetch: vi.fn() as unknown as typeof fetch },
+        });
+
+        expect(exitCode).toBe(1);
+        expect(existsSync(join(cwd, '.illoai'))).toBe(false);
+        expect(stderr.chunks.join('')).toBe(
+            'Error: No IlloAI workspace found. Pass --dir <directory> or run illoai new <name> first.\n',
         );
     });
 

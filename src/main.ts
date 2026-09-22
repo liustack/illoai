@@ -2,8 +2,9 @@
 
 declare const __APP_VERSION__: string;
 
-import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Command, CommanderError } from 'commander';
 import {
@@ -33,7 +34,20 @@ import {
     selectLocalModelProvider,
 } from './local-model/index.ts';
 import { type RenderHtmlOptions, type RenderHtmlResult, renderHtml } from './render/index.ts';
+import { createPhotoCoverTemplate, preparePhotoLayer } from './render/photo-cover.ts';
 import { createRenderTemplate } from './render/template.ts';
+import {
+    fetchStockPhoto,
+    isStockRef,
+    STOCK_ORIENTATIONS,
+    STOCK_PROVIDERS,
+    type StockHit,
+    type StockOrientation,
+    type StockProvider,
+    type StockRuntime,
+    searchStock,
+    stockFileStem,
+} from './stock/index.ts';
 import { listStyles, loadStyle } from './styles/loader.ts';
 import type { StyleDefinition } from './styles/schema.ts';
 import {
@@ -64,6 +78,7 @@ export interface CliRuntime {
     setExitCode: (code: number) => void;
     lookupCommand: (name: string) => string | undefined;
     runLocalModel: typeof defaultRunLocalModel;
+    stock: Pick<StockRuntime, 'fetch' | 'sleep' | 'download'>;
 }
 
 export type CliRuntimeOverrides = Partial<CliRuntime>;
@@ -87,7 +102,45 @@ function createRuntime(overrides: CliRuntimeOverrides = {}): CliRuntime {
         setExitCode: overrides.setExitCode ?? (() => undefined),
         lookupCommand: overrides.lookupCommand ?? lookupCommandOnPath,
         runLocalModel: overrides.runLocalModel ?? defaultRunLocalModel,
+        stock: overrides.stock ?? {},
     };
+}
+
+function parseStockProvider(value: string): StockProvider {
+    if (!STOCK_PROVIDERS.includes(value as StockProvider)) {
+        throw new Error(`Unknown provider "${value}". Use ${STOCK_PROVIDERS.join(', ')}.`);
+    }
+    return value as StockProvider;
+}
+
+function parseOrientation(value: string): StockOrientation {
+    if (!STOCK_ORIENTATIONS.includes(value as StockOrientation)) {
+        throw new Error(`Unknown orientation "${value}". Use ${STOCK_ORIENTATIONS.join(', ')}.`);
+    }
+    return value as StockOrientation;
+}
+
+function formatStockHit(hit: StockHit): string {
+    const size = `${hit.width}x${hit.height}`;
+    return `${hit.ref.padEnd(48)}${size.padEnd(12)}${hit.license.padEnd(16)}${hit.creator.padEnd(24)}${hit.thumbnail}`;
+}
+
+function creditLines(photo: {
+    license?: string;
+    attribution?: string;
+    pageUrl?: string;
+}): string[] {
+    const lines: string[] = [];
+    if (photo.license) {
+        lines.push(`License: ${photo.license}`);
+    }
+    if (photo.attribution) {
+        lines.push(`Credit: ${photo.attribution}`);
+    }
+    if (photo.pageUrl) {
+        lines.push(`Source: ${photo.pageUrl}`);
+    }
+    return lines;
 }
 
 function parseImageSource(value: string): ImageSource {
@@ -207,6 +260,10 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
         .option('--scale <factor>', 'Device scale factor from 1 to 4')
         .option('--via <provider>', 'Local model CLI: codex, grok, or claude')
         .option('--ref <path>', 'Named reference image (repeatable)', collectRefs, [])
+        .option(
+            '--photo <ref-or-path>',
+            'Stock photo ref (pexels:<id>, openverse:<id>) or a local image',
+        )
         .option('--verbose', 'Print backend CLI output')
         .action(
             async (
@@ -220,18 +277,116 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                     scale?: string;
                     via?: string;
                     ref?: string[];
+                    photo?: string;
                     verbose?: boolean;
                 },
             ) => {
                 const flags = flagsFromOptions(options);
-                const effective = resolveEffectiveConfig(loadConfigFile(runtime.configPath), flags);
+                const fileConfig = loadConfigFile(runtime.configPath);
+                const effective = resolveEffectiveConfig(fileConfig, flags);
 
                 if (flags.via !== undefined && effective.source !== 'local-model') {
                     throw new Error('--via is only valid with --source local-model.');
                 }
+                if (options.photo !== undefined && effective.source !== 'stock') {
+                    throw new Error('--photo is only valid with --source stock.');
+                }
 
                 if (effective.source === 'stock') {
-                    throw new Error('Source "stock" is not implemented yet. Use --source render.');
+                    if (options.photo === undefined || options.photo.trim() === '') {
+                        throw new Error(
+                            'Source "stock" needs --photo <ref-or-path>. Run illoai stock search "<query>" to pick one.',
+                        );
+                    }
+                    const workspaceDir = findWorkspace(runtime.cwd);
+                    const pack = workspaceDir ? loadStylePack(workspaceDir) : undefined;
+                    const palette = pack ? mergedPalette(pack) : undefined;
+                    const now = runtime.now();
+                    const stockRuntime: StockRuntime = {
+                        config: fileConfig.stock,
+                        ...runtime.stock,
+                    };
+
+                    let photoPath: string;
+                    let photoMeta: {
+                        ref?: string;
+                        provider?: StockProvider;
+                        creator?: string;
+                        license?: string;
+                        attribution?: string;
+                        pageUrl?: string;
+                    } = {};
+                    if (isStockRef(options.photo)) {
+                        const stem = stockFileStem(options.photo);
+                        const refsDir = workspaceDir
+                            ? join(workspaceDir, 'refs')
+                            : mkdtempSync(join(tmpdir(), 'illoai-stock-'));
+                        const fetched = await fetchStockPhoto(
+                            { ref: options.photo, basePath: join(refsDir, stem), now },
+                            stockRuntime,
+                        );
+                        photoPath = fetched.imagePath;
+                        photoMeta = {
+                            ref: fetched.photo.ref,
+                            provider: fetched.photo.provider,
+                            creator: fetched.photo.creator,
+                            license: fetched.photo.license,
+                            attribution: fetched.photo.attribution,
+                            pageUrl: fetched.photo.pageUrl,
+                        };
+                    } else {
+                        photoPath = resolve(runtime.cwd, options.photo);
+                        if (!existsSync(photoPath)) {
+                            throw new Error(`Photo not found: ${photoPath}`);
+                        }
+                    }
+
+                    const outputPath = flags.output
+                        ? flags.output
+                        : workspaceDir
+                          ? defaultWorkspaceOutputPath(workspaceDir, now)
+                          : effective.output;
+                    const photo = await preparePhotoLayer(
+                        photoPath,
+                        Math.round(effective.render.width * effective.render.scale),
+                        Math.round(effective.render.height * effective.render.scale),
+                    );
+                    const result = await runtime.renderHtml({
+                        html: createPhotoCoverTemplate(text, {
+                            photo,
+                            ...(palette ? { palette } : {}),
+                        }),
+                        outputPath,
+                        width: effective.render.width,
+                        height: effective.render.height,
+                        scale: effective.render.scale,
+                    });
+
+                    if (workspaceDir && pack) {
+                        appendHistory(workspaceDir, {
+                            createdAt: now.toISOString(),
+                            style: pack.style,
+                            palette: palette ?? {},
+                            text,
+                            source: 'stock',
+                            output: result.pngPath,
+                            photo: { path: photoPath, ...photoMeta },
+                        });
+                    }
+
+                    runtime.stdout.write(
+                        [
+                            `Created ${result.pngPath}`,
+                            `Canvas: ${result.meta.width}x${result.meta.height} at ${result.meta.scale}x`,
+                            `Photo: ${photoMeta.ref ?? photoPath}`,
+                            ...creditLines(photoMeta),
+                            photoMeta.provider
+                                ? `Privacy: the photo was downloaded from ${photoMeta.provider}. Render stayed on this machine.`
+                                : 'Privacy: render stayed on this machine.',
+                            '',
+                        ].join('\n'),
+                    );
+                    return;
                 }
 
                 if (effective.source === 'local-model') {
@@ -363,6 +518,73 @@ export function createProgram(overrides: CliRuntimeOverrides = {}): Command {
                 );
             },
         );
+
+    const stock = program
+        .command('stock')
+        .description('Search and fetch free stock photos for photo covers');
+
+    stock
+        .command('search')
+        .description('Search Pexels (with a key) or Openverse cc0/pdm photos')
+        .argument('<query>', 'Two to four concrete English words')
+        .option('--provider <name>', `Force a provider: ${STOCK_PROVIDERS.join(', ')}`)
+        .option('--orientation <name>', `Filter: ${STOCK_ORIENTATIONS.join(', ')}`)
+        .action(async (query: string, options: { provider?: string; orientation?: string }) => {
+            const fileConfig = loadConfigFile(runtime.configPath);
+            const { provider, hits } = await searchStock(
+                {
+                    query,
+                    ...(options.provider ? { provider: parseStockProvider(options.provider) } : {}),
+                    ...(options.orientation
+                        ? { orientation: parseOrientation(options.orientation) }
+                        : {}),
+                },
+                { config: fileConfig.stock, ...runtime.stock },
+            );
+            const lines = [`Provider: ${provider}`];
+            if (hits.length === 0) {
+                lines.push(`No ${provider} results for "${query.trim()}".`);
+            } else {
+                lines.push(...hits.map(formatStockHit));
+                lines.push(
+                    'Pick one by eye, then run: illoai gen "<text>" --source stock --photo <ref>',
+                );
+            }
+            runtime.stdout.write(`${lines.join('\n')}\n`);
+        });
+
+    stock
+        .command('fetch')
+        .description('Download one photo and its provenance sidecar')
+        .argument('<ref>', 'pexels:<id> or openverse:<id>')
+        .option('--dir <directory>', 'Target directory (defaults to .illoai/refs/)')
+        .action(async (ref: string, options: { dir?: string }) => {
+            const fileConfig = loadConfigFile(runtime.configPath);
+            const workspaceDir = findWorkspace(runtime.cwd);
+            const targetDir = options.dir
+                ? resolve(runtime.cwd, options.dir)
+                : workspaceDir
+                  ? join(workspaceDir, 'refs')
+                  : undefined;
+            if (targetDir === undefined) {
+                throw new Error(
+                    'No IlloAI workspace found. Pass --dir <directory> or run illoai new <name> first.',
+                );
+            }
+            const fetched = await fetchStockPhoto(
+                { ref, basePath: join(targetDir, stockFileStem(ref)), now: runtime.now() },
+                { config: fileConfig.stock, ...runtime.stock },
+            );
+            runtime.stdout.write(
+                [
+                    `Saved ${fetched.imagePath}`,
+                    `Sidecar: ${fetched.sidecar}`,
+                    `Size: ${fetched.photo.width}x${fetched.photo.height}`,
+                    ...creditLines(fetched.photo),
+                    '',
+                ].join('\n'),
+            );
+        });
 
     program
         .command('new')

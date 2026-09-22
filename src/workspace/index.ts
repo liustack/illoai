@@ -13,6 +13,7 @@ import {
     LOCAL_MODEL_PROVIDERS,
     type LocalModelProvider,
 } from '../config.ts';
+import { STOCK_PROVIDERS, type StockProvider } from '../stock/types.ts';
 import { loadFallbackStyle, loadStyle } from '../styles/loader.ts';
 import {
     type CanvasStrategy,
@@ -37,6 +38,16 @@ export interface StylePack {
     };
 }
 
+export interface HistoryPhoto {
+    path: string;
+    ref?: string;
+    provider?: StockProvider;
+    creator?: string;
+    license?: string;
+    attribution?: string;
+    pageUrl?: string;
+}
+
 export interface HistoryRecord {
     createdAt: string;
     style: string;
@@ -46,7 +57,18 @@ export interface HistoryRecord {
     source?: ImageSource;
     via?: LocalModelProvider;
     catalogPalette?: Record<string, PaletteSlotValue>;
+    photo?: HistoryPhoto;
 }
+
+const HISTORY_PHOTO_KEYS = new Set([
+    'path',
+    'ref',
+    'provider',
+    'creator',
+    'license',
+    'attribution',
+    'pageUrl',
+]);
 
 export interface CreateWorkspaceOptions {
     name: string;
@@ -310,6 +332,33 @@ function parseHistoryPaletteSlot(
     return { prompt: value.prompt, css: parseCssColorValue(value.css) };
 }
 
+function parseHistoryPhoto(filePath: string, lineNumber: number, value: unknown): HistoryPhoto {
+    const location = `${filePath}:${lineNumber}`;
+    if (!isPlainObject(value)) {
+        throw new Error(`${location} has invalid "photo". Expected an object.`);
+    }
+    for (const key of Object.keys(value)) {
+        if (!HISTORY_PHOTO_KEYS.has(key)) {
+            throw new Error(`${location} contains unknown key "photo.${key}".`);
+        }
+        if (typeof value[key] !== 'string') {
+            throw new Error(`${location} has invalid "photo.${key}". Expected a string.`);
+        }
+    }
+    if (typeof value.path !== 'string' || value.path.trim() === '') {
+        throw new Error(`${location} has invalid "photo.path". Expected a non-empty string.`);
+    }
+    if (
+        value.provider !== undefined &&
+        !STOCK_PROVIDERS.includes(value.provider as StockProvider)
+    ) {
+        throw new Error(
+            `${location} has invalid "photo.provider". Expected one of ${STOCK_PROVIDERS.join(', ')}.`,
+        );
+    }
+    return value as unknown as HistoryPhoto;
+}
+
 function parseHistoryRecord(filePath: string, lineNumber: number, raw: string): HistoryRecord {
     let parsed: unknown;
     try {
@@ -360,6 +409,9 @@ function parseHistoryRecord(filePath: string, lineNumber: number, raw: string): 
             );
         }
         record.via = parsed.via as LocalModelProvider;
+    }
+    if (parsed.photo !== undefined) {
+        record.photo = parseHistoryPhoto(filePath, lineNumber, parsed.photo);
     }
     if (parsed.catalogPalette !== undefined) {
         if (!isPlainObject(parsed.catalogPalette)) {
