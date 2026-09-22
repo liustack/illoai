@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { userAgent } from './http.ts';
 import { assertSafeRemoteTarget, type DnsLookup, defaultDnsLookup, pinnedFetch } from './ssrf.ts';
 import type { StockPhoto } from './types.ts';
 
@@ -54,7 +55,9 @@ export async function downloadPhotoBytes(
     const url = assertSafeDownloadUrl(downloadUrl);
     const pin = await assertSafeRemoteTarget(url, context.lookup ?? defaultDnsLookup);
     const doFetch = context.pinnedFetch ?? pinnedFetch;
-    const response = await doFetch(url, pin, { redirect: 'error' });
+    const response = await doFetch(url, pin, {
+        headers: { 'Accept-Encoding': 'identity', 'User-Agent': userAgent() },
+    });
     if (!response.ok) {
         throw new Error(`Stock photo download failed with HTTP ${response.status}.`);
     }

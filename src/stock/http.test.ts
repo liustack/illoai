@@ -64,7 +64,9 @@ describe('stock http layer', () => {
                 sleep: async () => undefined,
                 secrets: [],
             }),
-        ).rejects.toThrowError('test returned non-JSON (HTTP 200): <html>');
+        ).rejects.toThrowError(
+            'test returned non-JSON (HTTP 200, content-encoding none, first bytes 3c68746d6c3e): <html>',
+        );
 
         expect(redactSecrets('a b', [''])).toBe('a b');
     });

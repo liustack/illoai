@@ -1,9 +1,15 @@
 // 下载图库图片前的 SSRF 防护。API 返回的下载地址是外部输入，先解析 DNS、
 // 逐个检查地址，再把连接钉在通过检查的那个 IP 上，避免解析结果在检查和
 // 连接之间被换掉。
+//
+// 钉定走 node:https 的 lookup 选项，不引入 npm 的 undici：npm undici 一旦被
+// import 就会替换全局 dispatcher，Node 内置 fetch 随后收到剥掉 content-encoding
+// 的 gzip 原文，所有 JSON 请求都会坏掉。
+import type { LookupAddress, LookupOptions } from 'node:dns';
 import { lookup as dnsLookup } from 'node:dns/promises';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
-import { Agent, fetch as undiciFetch } from 'undici';
 
 export interface PinnedTarget {
     hostname: string;
@@ -98,47 +104,66 @@ export async function assertSafeRemoteTarget(url: URL, lookup?: DnsLookup): Prom
     return { hostname, address: chosen.address, family: chosen.family };
 }
 
-export async function pinnedFetch(
+export interface PinnedFetchInit {
+    headers?: Record<string, string>;
+}
+
+type LookupCallback = (
+    err: NodeJS.ErrnoException | null,
+    address: string | LookupAddress[],
+    family?: number,
+) => void;
+
+// 只允许 GET，不跟随重定向：3xx 会以非 2xx 状态返回给调用方。
+export function pinnedFetch(
     url: URL,
     pin: PinnedTarget,
-    init?: RequestInit,
+    init: PinnedFetchInit = {},
 ): Promise<Response> {
-    const dispatcher = new Agent({
-        connect: {
-            lookup: (
-                _hostname: string,
-                options: { all?: boolean } | undefined,
-                callback: (...args: unknown[]) => void,
-            ) => {
-                const record = { address: pin.address, family: pin.family };
-                if (options?.all) {
-                    callback(null, [record]);
-                } else {
-                    callback(null, pin.address, pin.family);
-                }
+    const doRequest = url.protocol === 'http:' ? httpRequest : httpsRequest;
+    return new Promise((resolve, reject) => {
+        const req = doRequest(
+            url,
+            {
+                method: 'GET',
+                headers: init.headers,
+                servername: url.protocol === 'https:' ? pin.hostname : undefined,
+                lookup: (_hostname: string, options: LookupOptions, callback: LookupCallback) => {
+                    if (options.all === true) {
+                        callback(null, [{ address: pin.address, family: pin.family }]);
+                    } else {
+                        callback(null, pin.address, pin.family);
+                    }
+                },
             },
-        } as never,
+            (res) => {
+                const chunks: Buffer[] = [];
+                res.on('data', (chunk: Buffer) => {
+                    chunks.push(chunk);
+                });
+                res.on('error', reject);
+                res.on('end', () => {
+                    const headers = new Headers();
+                    for (const [name, value] of Object.entries(res.headers)) {
+                        if (typeof value === 'string') {
+                            headers.set(name, value);
+                        } else if (Array.isArray(value)) {
+                            headers.set(name, value.join(', '));
+                        }
+                    }
+                    resolve(
+                        new Response(Buffer.concat(chunks), {
+                            status: res.statusCode ?? 0,
+                            statusText: res.statusMessage ?? '',
+                            headers,
+                        }),
+                    );
+                });
+            },
+        );
+        req.on('error', reject);
+        req.end();
     });
-    try {
-        const response = await undiciFetch(url, {
-            ...(init as Parameters<typeof undiciFetch>[1]),
-            dispatcher,
-        });
-        const buffered = Buffer.from(await response.arrayBuffer());
-        await dispatcher.close();
-        const headers = new Headers();
-        response.headers.forEach((value, key) => {
-            headers.set(key, value);
-        });
-        return new Response(buffered, {
-            status: response.status,
-            statusText: response.statusText,
-            headers,
-        });
-    } catch (error) {
-        await dispatcher.close().catch(() => {});
-        throw error;
-    }
 }
 
 function ipv4ToNumber(ipAddress: string): number {
@@ -155,6 +180,8 @@ function inRange(value: number, start: string, end: string): boolean {
     return value >= ipv4ToNumber(start) && value <= ipv4ToNumber(end);
 }
 
+// 198.18.0.0/15 故意不拦：Clash、Surge、Mihomo 的 fake-ip 模式默认把所有域名解析到
+// 这个段，再由代理接管连接。这个段在公网不可路由，也没有云元数据服务。
 function isPrivateIPv4(ipAddress: string): boolean {
     const octets = ipAddress.split('.').map((part) => Number.parseInt(part, 10));
     if (
@@ -173,7 +200,6 @@ function isPrivateIPv4(ipAddress: string): boolean {
         inRange(value, '172.16.0.0', '172.31.255.255') ||
         inRange(value, '192.0.0.0', '192.0.0.255') ||
         inRange(value, '192.168.0.0', '192.168.255.255') ||
-        inRange(value, '198.18.0.0', '198.19.255.255') ||
         inRange(value, '224.0.0.0', '255.255.255.255')
     );
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { assertSafeRemoteTarget, isBlockedHostname, isPrivateIpAddress } from './ssrf.ts';
+import {
+    assertSafeRemoteTarget,
+    isBlockedHostname,
+    isPrivateIpAddress,
+    pinnedFetch,
+} from './ssrf.ts';
 
 describe('ssrf guards', () => {
     it('blocks loopback, link-local, private, and metadata hosts', () => {
@@ -21,6 +26,7 @@ describe('ssrf guards', () => {
         expect(isPrivateIpAddress('not-an-ip')).toBe(true);
 
         expect(isPrivateIpAddress('8.8.8.8')).toBe(false);
+        expect(isPrivateIpAddress('198.18.97.239')).toBe(false);
         expect(isPrivateIpAddress('2606:4700::1111')).toBe(false);
     });
 
@@ -50,5 +56,64 @@ describe('ssrf guards', () => {
         await expect(
             assertSafeRemoteTarget(new URL('https://nowhere.example/a.jpg'), async () => []),
         ).rejects.toThrowError('Host nowhere.example did not resolve to any IP address.');
+    });
+});
+
+describe('pinnedFetch', () => {
+    it('connects to the pinned address regardless of the URL hostname and passes headers through', async () => {
+        const { createServer } = await import('node:http');
+        const seen: { host?: string; agent?: string; encoding?: string } = {};
+        const server = createServer((req, res) => {
+            seen.host = req.headers.host;
+            seen.agent = req.headers['user-agent'];
+            seen.encoding = req.headers['accept-encoding'];
+            res.writeHead(200, { 'content-type': 'image/png', 'x-served': 'pinned' });
+            res.end(Buffer.from('png-bytes'));
+        });
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+
+        try {
+            const response = await pinnedFetch(
+                new URL(`http://pinned.invalid:${port}/photo.png`),
+                { hostname: 'pinned.invalid', address: '127.0.0.1', family: 4 },
+                { headers: { 'User-Agent': 'illoai-test', 'Accept-Encoding': 'identity' } },
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('x-served')).toBe('pinned');
+            expect(response.headers.get('content-type')).toBe('image/png');
+            expect(Buffer.from(await response.arrayBuffer()).toString()).toBe('png-bytes');
+            expect(seen).toEqual({
+                host: `pinned.invalid:${port}`,
+                agent: 'illoai-test',
+                encoding: 'identity',
+            });
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    });
+
+    it('surfaces a redirect as its status instead of following it', async () => {
+        const { createServer } = await import('node:http');
+        const server = createServer((_req, res) => {
+            res.writeHead(302, { location: 'http://127.0.0.1:1/elsewhere' });
+            res.end();
+        });
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+        try {
+            const response = await pinnedFetch(new URL(`http://pinned.invalid:${port}/a`), {
+                hostname: 'pinned.invalid',
+                address: '127.0.0.1',
+                family: 4,
+            });
+            expect(response.status).toBe(302);
+            expect(response.ok).toBe(false);
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
     });
 });

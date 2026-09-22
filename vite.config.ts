@@ -26,7 +26,6 @@ export default defineConfig({
                 'commander',
                 'playwright',
                 'sharp',
-                'undici',
                 ...builtinModules,
                 ...builtinModules.map((name) => `node:${name}`),
             ],

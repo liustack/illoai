@@ -72,7 +72,8 @@ export async function fetchJson(request: JsonRequest): Promise<unknown> {
                 ),
             );
         }
-        const text = await res.text();
+        const body = Buffer.from(await res.arrayBuffer());
+        const text = body.toString('utf8');
         if (res.status === 429) {
             if (attempt >= 2) {
                 throw new Error(
@@ -92,7 +93,7 @@ export async function fetchJson(request: JsonRequest): Promise<unknown> {
             return JSON.parse(text) as unknown;
         } catch {
             throw new Error(
-                `${request.label} returned non-JSON (HTTP ${res.status}): ${redactSecrets(text.slice(0, 200), request.secrets)}`,
+                `${request.label} returned non-JSON (HTTP ${res.status}, content-encoding ${res.headers.get('content-encoding') ?? 'none'}, first bytes ${body.subarray(0, 8).toString('hex')}): ${redactSecrets(text.slice(0, 120), request.secrets)}`,
             );
         }
     }

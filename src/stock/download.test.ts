@@ -9,7 +9,7 @@ import {
     sidecarPath,
     writePhotoFiles,
 } from './download.ts';
-import type { PinnedTarget } from './ssrf.ts';
+import type { PinnedFetchInit, PinnedTarget } from './ssrf.ts';
 import type { StockPhoto } from './types.ts';
 
 const tempDirectories: string[] = [];
@@ -42,7 +42,7 @@ describe('stock download', () => {
             downloadPhotoBytes('http://images.example/a.jpg', { lookup: publicLookup }),
         ).rejects.toThrowError('Stock photo download URL must use https');
 
-        const pinned = vi.fn(async (_url: URL, _pin: PinnedTarget) =>
+        const pinned = vi.fn(async (_url: URL, _pin: PinnedTarget, _init?: PinnedFetchInit) =>
             imageResponse(Buffer.from('abc'), 'image/jpeg'),
         );
         const result = await downloadPhotoBytes('https://images.example/a.jpg', {
