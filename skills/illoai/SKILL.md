@@ -1,6 +1,6 @@
 ---
 name: illoai
-description: "Create visually coherent image sets for an article, presentation, product, or campaign with IlloAI. Use this skill whenever the user asks for article illustrations, covers, social variants, editable text-led cards, or multiple graphics that must feel like one visual family. Also use it for IlloAI configuration and offline diagnostics."
+description: "Make a cover or illustration for an article, presentation, product, or campaign with IlloAI, and keep every image in the piece inside one visual family. Start with a free photo cover: search cc0 stock, put the project palette and headline on it, no API key and no upload. Use this skill whenever the user asks for a cover, hero image, article illustration, social variant, or an editable text-led card. Also use it for IlloAI configuration and offline diagnostics."
 compatibility: Requires Node.js 22.19 or newer. Local HTML rendering also requires Playwright Chromium.
 allowed-tools: Bash
 ---
@@ -19,7 +19,7 @@ Run `illoai project` before generating anything.
 - Write every generated PNG to `.illoai/out/`. Do not invent extra image folders in the user project.
 - Keep `.illoai/project.json` as the project visual system. Commit it.
 - Keep `.illoai/history.jsonl` as the generation log. Commit it.
-- Leave `out/`, `cache/`, and `refs/` untracked. Force-add only the refs the user names.
+- Leave `out/`, `cache/`, and `refs/` untracked. Fetched stock photos and their `.json` sidecars live in `refs/`. Force-add only the refs the user names.
 - Copy a style prompt in full. Never rewrite, shorten, or restyle the catalog text.
 
 ```bash
@@ -37,10 +37,29 @@ Use the content role, not the presence of text, to choose a source.
 
 | Output | Source |
 | :-- | :-- |
+| A cover or hero image: a real photo carries the mood and a headline sits on it | `stock` |
 | Text is the information subject, or the wording will be edited repeatedly | `render` |
-| The picture is the subject, with at most a small amount of decorative text | `local-model` |
+| An illustration where the picture is the subject and the user has a model CLI | `local-model` |
 
-The current release implements `render` and `local-model`. If the request needs `stock`, report that the source is not implemented yet. Do not silently substitute another source. If a requested local-model backend is missing, stop and name the CLI to install. Do not switch to render, stock, or a different CLI.
+`stock` and `render` need nothing beyond Node and Chromium. `local-model` needs the user's own Codex, Grok, or Claude CLI. Do not silently substitute one source for another. If a requested local-model backend is missing, stop and name the CLI to install. Do not switch to stock, render, or a different CLI.
+
+## Photo cover from free stock
+
+Search first. Openverse needs no key and returns only cc0 and public-domain photos. Pexels is used automatically when `stock.pexels.apiKey` is set, or when asked for with `--provider pexels`.
+
+```bash
+illoai stock search "harbour dawn" --orientation landscape
+```
+
+The output lists one photo per line: ref, size, license, creator, thumbnail URL. Look at the thumbnails and choose. Do not take the first result by default. Prefer a photo with a calm area where the headline can sit. Then render:
+
+```bash
+illoai gen "<headline>" --source stock --photo openverse:<id> --preset 16:9
+```
+
+`--photo` also accepts a local image path. A fetched photo and its provenance sidecar land in `.illoai/refs/` when a workspace exists, otherwise in a temp directory. The command prints `License`, `Credit`, and `Source` lines. Repeat the `Credit` line to the user when it is present. cc0 and pdm photos print no credit because none is required.
+
+Use a short concrete English query of two to four words. Keep mood words and negatives out of it.
 
 ## Render a PNG
 
@@ -96,7 +115,10 @@ After the command finishes, verify the image at the reported path. Tell the user
 illoai config init
 illoai config set render.preset 3:2
 illoai config set render.scale 2
+illoai config set stock.pexels.apiKey <key>
 illoai config show
 ```
+
+`stock.openverse.clientId` and `stock.openverse.clientSecret` are optional and only raise the Openverse rate limit.
 
 Settings resolve in this order: command flags, `~/.illoai/config.json`, built-in defaults. `config show` masks secrets and URL credentials. `illoai doctor` performs offline checks only.

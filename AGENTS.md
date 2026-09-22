@@ -11,13 +11,11 @@ The product contract is article-level consistency. A cover, body illustration, s
 Phase one currently ships these working surfaces:
 
 - `render` turns the built-in HTML template and user text into a local PNG
+- `stock search` and `stock fetch` find and download free photos from Openverse (cc0 and pdm only, no key) or Pexels (needs `stock.pexels.apiKey`)
+- `gen --source stock --photo <ref-or-path>` composes a photo cover: the photo is inlined as a data URI, the project palette tints it, and the headline sits on a scrim
 - `local-model` calls the user's own Codex, Grok, or Claude CLI to generate an image
 - `styles` lists the ten self-contained catalog styles
 - `new` and `project` manage a per-project `.illoai/` workspace
-
-These command surfaces exist but must return a clear not-implemented error until their domain is built:
-
-- `stock` for free image search
 
 Do not add:
 
@@ -35,7 +33,9 @@ The ten-style catalog is in `src/styles/`. Each style prompt is copied unchanged
 - The CLI bundle is `dist/main.js`. Runtime dependencies and Node built-ins remain external.
 - Layered settings resolve in this order: CLI flags, `~/.illoai/config.json`, built-in defaults.
 - Config writes use mode 0600. Invalid JSON and schema violations fail at the config boundary.
-- The render engine uses Playwright Chromium directly. It disables JavaScript and blocks HTTP and HTTPS requests, then captures the requested viewport as PNG.
+- The render engine uses Playwright Chromium directly. It disables JavaScript and blocks HTTP and HTTPS requests, then captures the requested viewport as PNG. Photo covers therefore inline the photo as a JPEG data URI after `sharp` has cropped it to the canvas pixel size.
+- Stock providers never fall back to each other. A missing Pexels key is an error, not a switch to Openverse. Openverse results are filtered to cc0 and pdm at search time and re-checked at download time.
+- Stock downloads go through `src/stock/ssrf.ts`: blocked hostnames, private and reserved IP ranges, DNS resolved up front, and the socket pinned to the address that passed. `fetch` and `sleep` are injected so tests never touch the network.
 - Size presets are production pixels. `scale` controls Chromium device scale and therefore output pixel density.
 - `local-model` asks the backend for the native generate size, then crops and resizes in-process with `sharp`. It does not shell out to sips or ImageMagick.
 - Each style record is self-contained. Copy its full prompt unchanged. Append one subject description, or fill a declared subject slot in place instead of appending.
@@ -65,8 +65,19 @@ src/
 ├── render/
 │   ├── index.ts            # Playwright HTML to PNG engine
 │   ├── index.test.ts
+│   ├── photo-cover.ts      # Photo cover template and sharp preprocessing
+│   ├── photo-cover.test.ts
 │   ├── template.ts         # Built-in text-led visual template
 │   └── template.test.ts
+├── stock/
+│   ├── index.ts            # Provider selection, search, fetch, file stems
+│   ├── types.ts            # StockHit, StockPhoto, providers, orientations
+│   ├── ref.ts              # pexels:<id> / openverse:<id> parsing
+│   ├── http.ts             # Injected fetch, 429 backoff, secret redaction
+│   ├── openverse.ts        # Anonymous search, optional OAuth token, cc0/pdm gate
+│   ├── pexels.ts           # Keyed search and photo detail
+│   ├── download.ts         # https-only download, content-type gate, sidecar
+│   └── ssrf.ts             # Hostname and IP checks, DNS pin
 ├── styles/
 │   ├── schema.ts           # Style, palette slot, canvas, and catalog metadata types
 │   ├── catalog.ts          # Ten self-contained styles
@@ -92,9 +103,12 @@ illoai styles
 illoai new demo --style memory_color_blocks
 illoai project
 illoai gen "One visual family across the whole story" --source render --preset 16:9
+illoai stock search "harbour dawn" --orientation landscape
+illoai gen "The tide comes back" --source stock --photo openverse:<id> --preset 16:9
 illoai gen "A figure on a shore" --source local-model --via codex --preset 3:2
 illoai config init
 illoai config set render.preset 3:2
+illoai config set stock.pexels.apiKey <key>
 illoai config show
 illoai doctor
 ```
